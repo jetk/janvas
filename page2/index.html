@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>janvas</title>
+<title>janvas — orbit pairs</title>
 <style>
   :root {
     --inner-color: #000000;
@@ -30,25 +30,11 @@
     max-width: 70vmin;
     max-height: 70vmin;
   }
-  #inner polygon {
+  #inner circle {
     fill: var(--inner-color);
   }
-  #outer polygon {
+  #outer circle {
     fill: var(--outer-color);
-  }
-  #inner, #outer {
-    transform-box: fill-box;
-    transform-origin: center;
-  }
-  #inner {
-    animation-name: spin-cw;
-    animation-timing-function: linear;
-    animation-iteration-count: infinite;
-  }
-  #outer {
-    animation-name: spin-ccw;
-    animation-timing-function: linear;
-    animation-iteration-count: infinite;
   }
   @keyframes spin-cw {
     to { transform: rotate(360deg); }
@@ -94,7 +80,7 @@
     color: #555;
   }
   .row .name {
-    width: 60px;
+    width: 70px;
     flex: none;
   }
   .row input[type="range"] {
@@ -125,7 +111,7 @@
   .pagenav {
     position: fixed;
     top: 12px;
-    right: 16px;
+    left: 16px;
     font-size: 11px;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -138,7 +124,7 @@
 </style>
 </head>
 <body>
-  <nav class="pagenav"><a href="page2/">Page 2 →</a></nav>
+  <nav class="pagenav"><a href="../">← Page 1</a></nav>
   <div class="stage">
     <svg id="canvas" viewBox="0 0 460 460" width="460" height="460" xmlns="http://www.w3.org/2000/svg">
       <g id="outer"></g>
@@ -158,12 +144,12 @@
       </div>
       <div class="row">
         <span class="name">Spacing</span>
-        <input type="range" id="inner-spacing" min="2" max="30" step="0.5" value="6">
-        <input type="number" id="inner-spacing-n" min="2" max="30" step="0.5" value="6">
+        <input type="range" id="inner-spacing" min="2" max="30" step="0.5" value="10">
+        <input type="number" id="inner-spacing-n" min="2" max="30" step="0.5" value="10">
         <span class="range-hint">2–30°</span>
       </div>
       <div class="row">
-        <span class="name">Speed</span>
+        <span class="name">Orbit speed</span>
         <input type="range" id="inner-speed" min="1" max="30" step="1" value="5">
         <input type="number" id="inner-speed-n" min="1" max="30" step="1" value="5">
         <span class="range-hint">1–30</span>
@@ -183,12 +169,12 @@
       </div>
       <div class="row">
         <span class="name">Spacing</span>
-        <input type="range" id="outer-spacing" min="2" max="30" step="0.5" value="4.3">
-        <input type="number" id="outer-spacing-n" min="2" max="30" step="0.5" value="4.3">
+        <input type="range" id="outer-spacing" min="2" max="30" step="0.5" value="7">
+        <input type="number" id="outer-spacing-n" min="2" max="30" step="0.5" value="7">
         <span class="range-hint">2–30°</span>
       </div>
       <div class="row">
-        <span class="name">Speed</span>
+        <span class="name">Orbit speed</span>
         <input type="range" id="outer-speed" min="1" max="30" step="1" value="3">
         <input type="number" id="outer-speed-n" min="1" max="30" step="1" value="3">
         <span class="range-hint">1–30</span>
@@ -203,35 +189,64 @@
 <script>
   const CX = 230, CY = 230;
   const SVGNS = "http://www.w3.org/2000/svg";
-  const SPEED_K = 60; // duration(s) = SPEED_K / speedValue -> higher speed value = faster spin
+  const SPEED_K = 60; // duration(s) = SPEED_K / speedValue -> higher speed value = faster orbit
 
-  function trianglePoints(R, N, hw, h, clockwise) {
-    const sign = clockwise ? 1 : -1;
-    const pts = [];
-    for (let i = 0; i < N; i++) {
-      const theta = (2 * Math.PI * i) / N;
-      const ct = Math.cos(theta), st = Math.sin(theta);
-      const rx = ct, ry = st;                 // radial unit vector
-      let tx = -st, ty = ct;                  // tangential unit vector (clockwise, SVG y-down)
-      tx *= sign; ty *= sign;
-      const px = CX + R * ct, py = CY + R * st;
-      const ax = px + hw * rx, ay = py + hw * ry;
-      const bx = px - hw * rx, by = py - hw * ry;
-      const apx = px + h * tx, apy = py + h * ty;
-      pts.push(`${ax.toFixed(2)},${ay.toFixed(2)} ${bx.toFixed(2)},${by.toFixed(2)} ${apx.toFixed(2)},${apy.toFixed(2)}`);
-    }
-    return pts;
+  // --- Motion patterns -------------------------------------------------
+  // Each pattern takes the circle radius (`size`) and returns the two
+  // bodies of a pair as {cx, cy, r}, positioned relative to the pair's
+  // center (which itself sits on the big ring). To add a new way for the
+  // pair to move, add a function here and set CURRENT_PATTERN to its key
+  // — buildPairGroup() and the per-frame CSS animation don't need to change
+  // for patterns that are still "two bodies spinning around a shared center
+  // at a fixed rate"; a pattern needing per-frame JS control (e.g. eccentric
+  // orbits, pulsing radius) would instead drive its own rAF loop keyed off
+  // performance.now() rather than a CSS animation-duration.
+  const PATTERNS = {
+    orbit(size) {
+      const orbitR = size; // circles end up tangent at the pair center
+      return [
+        { cx: -orbitR, cy: 0, r: size },
+        { cx: orbitR, cy: 0, r: size },
+      ];
+    },
+  };
+  const CURRENT_PATTERN = "orbit";
+
+  function buildPairGroup(px, py, size, durationSeconds, clockwise) {
+    const outerG = document.createElementNS(SVGNS, "g");
+    outerG.setAttribute("transform", `translate(${px.toFixed(2)},${py.toFixed(2)})`);
+
+    const spinG = document.createElementNS(SVGNS, "g");
+    spinG.setAttribute("class", "spin");
+    spinG.style.transformBox = "fill-box";
+    spinG.style.transformOrigin = "center";
+    spinG.style.animationName = clockwise ? "spin-cw" : "spin-ccw";
+    spinG.style.animationTimingFunction = "linear";
+    spinG.style.animationIterationCount = "infinite";
+    spinG.style.animationDuration = durationSeconds + "s";
+
+    PATTERNS[CURRENT_PATTERN](size).forEach((body) => {
+      const c = document.createElementNS(SVGNS, "circle");
+      c.setAttribute("cx", body.cx.toFixed(2));
+      c.setAttribute("cy", body.cy.toFixed(2));
+      c.setAttribute("r", body.r.toFixed(2));
+      spinG.appendChild(c);
+    });
+
+    outerG.appendChild(spinG);
+    return outerG;
   }
 
-  function buildRing(groupId, R, N, hw, h, clockwise) {
+  function buildRing(groupId, R, N, size, durationSeconds, clockwise) {
     const g = document.getElementById(groupId);
     g.innerHTML = "";
     const frag = document.createDocumentFragment();
-    trianglePoints(R, N, hw, h, clockwise).forEach((p) => {
-      const poly = document.createElementNS(SVGNS, "polygon");
-      poly.setAttribute("points", p);
-      frag.appendChild(poly);
-    });
+    for (let i = 0; i < N; i++) {
+      const theta = (2 * Math.PI * i) / N;
+      const px = CX + R * Math.cos(theta);
+      const py = CY + R * Math.sin(theta);
+      frag.appendChild(buildPairGroup(px, py, size, durationSeconds, clockwise));
+    }
     g.appendChild(frag);
   }
 
@@ -261,14 +276,11 @@
     const oSpacing = +document.getElementById("outer-spacing").value;
     const oSpeed = +document.getElementById("outer-speed").value;
 
-    const iCount = Math.max(8, Math.min(200, Math.round(360 / iSpacing)));
-    const oCount = Math.max(8, Math.min(200, Math.round(360 / oSpacing)));
+    const iCount = Math.max(6, Math.min(120, Math.round(360 / iSpacing)));
+    const oCount = Math.max(6, Math.min(120, Math.round(360 / oSpacing)));
 
-    buildRing("inner", 170, iCount, iSize, iSize * 3.2, true);
-    buildRing("outer", 215, oCount, oSize, oSize * 3.2, false);
-
-    document.getElementById("inner").style.animationDuration = (SPEED_K / iSpeed) + "s";
-    document.getElementById("outer").style.animationDuration = (SPEED_K / oSpeed) + "s";
+    buildRing("inner", 170, iCount, iSize, SPEED_K / iSpeed, true);
+    buildRing("outer", 215, oCount, oSize, SPEED_K / oSpeed, false);
 
     document.documentElement.style.setProperty("--inner-color", document.getElementById("inner-color").value);
     document.documentElement.style.setProperty("--outer-color", document.getElementById("outer-color").value);
