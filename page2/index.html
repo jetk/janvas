@@ -6,8 +6,8 @@
 <title>janvas — orbit pairs</title>
 <style>
   :root {
-    --inner-color: #000000;
-    --outer-color: #000000;
+    --color-a: #000000;
+    --color-b: #000000;
   }
   html, body {
     height: 100%;
@@ -30,17 +30,21 @@
     max-width: 70vmin;
     max-height: 70vmin;
   }
-  #inner circle {
-    fill: var(--inner-color);
+  .half-a circle {
+    fill: var(--color-a);
   }
-  #outer circle {
-    fill: var(--outer-color);
+  .half-b circle {
+    fill: var(--color-b);
+  }
+  .spin {
+    transform-box: view-box;
+    transform-origin: 0px 0px;
+    animation-name: spin-cw;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
   }
   @keyframes spin-cw {
     to { transform: rotate(360deg); }
-  }
-  @keyframes spin-ccw {
-    to { transform: rotate(-360deg); }
   }
   h1 {
     margin: 0;
@@ -53,7 +57,7 @@
   .controls {
     display: flex;
     justify-content: center;
-    gap: 48px;
+    gap: 40px;
     padding: 16px 24px 24px;
     border-top: 1px solid #ddd9d0;
     background: #f5f4f0;
@@ -63,7 +67,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    min-width: 220px;
+    min-width: 200px;
   }
   .ring-controls h2 {
     margin: 0 0 2px;
@@ -80,7 +84,7 @@
     color: #555;
   }
   .row .name {
-    width: 70px;
+    width: 60px;
     flex: none;
   }
   .row input[type="range"] {
@@ -127,125 +131,125 @@
   <nav class="pagenav"><a href="../">← Page 1</a></nav>
   <div class="stage">
     <svg id="canvas" viewBox="0 0 460 460" width="460" height="460" xmlns="http://www.w3.org/2000/svg">
-      <g id="outer"></g>
-      <g id="inner"></g>
+      <g id="ring"></g>
     </svg>
     <h1>janvas</h1>
   </div>
 
   <div class="controls">
     <div class="ring-controls">
-      <h2>Inner ring</h2>
+      <h2>Ring</h2>
       <div class="row">
         <span class="name">Size</span>
-        <input type="range" id="inner-size" min="3" max="14" step="0.5" value="5">
-        <input type="number" id="inner-size-n" min="3" max="14" step="0.5" value="5">
+        <input type="range" id="size" min="3" max="14" step="0.5" value="6">
+        <input type="number" id="size-n" min="3" max="14" step="0.5" value="6">
         <span class="range-hint">3–14</span>
       </div>
       <div class="row">
         <span class="name">Spacing</span>
-        <input type="range" id="inner-spacing" min="2" max="30" step="0.5" value="10">
-        <input type="number" id="inner-spacing-n" min="2" max="30" step="0.5" value="10">
+        <input type="range" id="spacing" min="2" max="30" step="0.5" value="8">
+        <input type="number" id="spacing-n" min="2" max="30" step="0.5" value="8">
         <span class="range-hint">2–30°</span>
-      </div>
-      <div class="row">
-        <span class="name">Orbit speed</span>
-        <input type="range" id="inner-speed" min="1" max="30" step="1" value="5">
-        <input type="number" id="inner-speed-n" min="1" max="30" step="1" value="5">
-        <span class="range-hint">1–30</span>
-      </div>
-      <div class="row">
-        <span class="name">Color</span>
-        <input type="color" id="inner-color" value="#000000">
       </div>
     </div>
     <div class="ring-controls">
-      <h2>Outer ring</h2>
+      <h2>Circle A</h2>
       <div class="row">
-        <span class="name">Size</span>
-        <input type="range" id="outer-size" min="3" max="14" step="0.5" value="5">
-        <input type="number" id="outer-size-n" min="3" max="14" step="0.5" value="5">
-        <span class="range-hint">3–14</span>
-      </div>
-      <div class="row">
-        <span class="name">Spacing</span>
-        <input type="range" id="outer-spacing" min="2" max="30" step="0.5" value="7">
-        <input type="number" id="outer-spacing-n" min="2" max="30" step="0.5" value="7">
-        <span class="range-hint">2–30°</span>
-      </div>
-      <div class="row">
-        <span class="name">Orbit speed</span>
-        <input type="range" id="outer-speed" min="1" max="30" step="1" value="3">
-        <input type="number" id="outer-speed-n" min="1" max="30" step="1" value="3">
+        <span class="name">Speed</span>
+        <input type="range" id="speed-a" min="1" max="30" step="1" value="5">
+        <input type="number" id="speed-a-n" min="1" max="30" step="1" value="5">
         <span class="range-hint">1–30</span>
       </div>
       <div class="row">
         <span class="name">Color</span>
-        <input type="color" id="outer-color" value="#000000">
+        <input type="color" id="color-a" value="#000000">
+      </div>
+    </div>
+    <div class="ring-controls">
+      <h2>Circle B</h2>
+      <div class="row">
+        <span class="name">Speed</span>
+        <input type="range" id="speed-b" min="1" max="30" step="1" value="5">
+        <input type="number" id="speed-b-n" min="1" max="30" step="1" value="5">
+        <span class="range-hint">1–30</span>
+      </div>
+      <div class="row">
+        <span class="name">Color</span>
+        <input type="color" id="color-b" value="#000000">
       </div>
     </div>
   </div>
 
 <script>
-  const CX = 230, CY = 230;
+  const CX = 230, CY = 230, R = 180;
   const SVGNS = "http://www.w3.org/2000/svg";
-  const SPEED_K = 60; // duration(s) = SPEED_K / speedValue -> higher speed value = faster orbit
+  const SPEED_K = 60; // duration(s) = SPEED_K / speedValue -> higher speed value = faster spin
 
   // --- Motion patterns -------------------------------------------------
-  // Each pattern takes the circle radius (`size`) and returns the two
-  // bodies of a pair as {cx, cy, r}, positioned relative to the pair's
-  // center (which itself sits on the big ring). To add a new way for the
-  // pair to move, add a function here and set CURRENT_PATTERN to its key
-  // — buildPairGroup() and the per-frame CSS animation don't need to change
-  // for patterns that are still "two bodies spinning around a shared center
-  // at a fixed rate"; a pattern needing per-frame JS control (e.g. eccentric
-  // orbits, pulsing radius) would instead drive its own rAF loop keyed off
-  // performance.now() rather than a CSS animation-duration.
+  // A pattern places the two bodies of a pair at a starting local angle
+  // (in degrees, measured from the pair's own +x axis) and an orbit radius.
+  // Each pair is drawn as: translate to its position on the ring, then for
+  // each body: a static rotate(phaseOffsetDeg) — the position on the ring —
+  // wrapping an animated rotate(0 -> 360deg) at the given duration. Because
+  // the static offset is the pair's own angle around the big ring, all
+  // pairs' bodies start pointing radially at t=0 and re-align radially
+  // together whenever the two speeds bring them back in phase. To add a
+  // different pair choreography later, add a function here returning
+  // { bodies: [{angleDeg, orbitR}, ...] } and switch CURRENT_PATTERN — a
+  // pattern needing per-frame JS control (not just steady rotation) would
+  // drive its own rAF loop instead of relying on CSS animation-duration.
   const PATTERNS = {
     orbit(size) {
-      const orbitR = size; // circles end up tangent at the pair center
-      return [
-        { cx: -orbitR, cy: 0, r: size },
-        { cx: orbitR, cy: 0, r: size },
-      ];
+      return {
+        bodies: [
+          { angleDeg: 0, orbitR: size },
+          { angleDeg: 180, orbitR: size },
+        ],
+      };
     },
   };
   const CURRENT_PATTERN = "orbit";
 
-  function buildPairGroup(px, py, size, durationSeconds, clockwise) {
+  function buildPairGroup(px, py, ringAngleDeg, size, durationA, durationB) {
     const outerG = document.createElementNS(SVGNS, "g");
     outerG.setAttribute("transform", `translate(${px.toFixed(2)},${py.toFixed(2)})`);
 
-    const spinG = document.createElementNS(SVGNS, "g");
-    spinG.setAttribute("class", "spin");
-    spinG.style.transformBox = "fill-box";
-    spinG.style.transformOrigin = "center";
-    spinG.style.animationName = clockwise ? "spin-cw" : "spin-ccw";
-    spinG.style.animationTimingFunction = "linear";
-    spinG.style.animationIterationCount = "infinite";
-    spinG.style.animationDuration = durationSeconds + "s";
+    const { bodies } = PATTERNS[CURRENT_PATTERN](size);
+    const durations = [durationA, durationB];
+    const classes = ["half-a", "half-b"];
 
-    PATTERNS[CURRENT_PATTERN](size).forEach((body) => {
+    bodies.forEach((body, idx) => {
+      const phaseG = document.createElementNS(SVGNS, "g");
+      // Static offset = this pair's angle on the ring, so every pair's
+      // body starts pointed radially, in sync with every other pair.
+      phaseG.setAttribute("transform", `rotate(${(ringAngleDeg + body.angleDeg).toFixed(2)})`);
+
+      const spinG = document.createElementNS(SVGNS, "g");
+      spinG.setAttribute("class", `spin ${classes[idx]}`);
+      spinG.style.animationDuration = durations[idx] + "s";
+
       const c = document.createElementNS(SVGNS, "circle");
-      c.setAttribute("cx", body.cx.toFixed(2));
-      c.setAttribute("cy", body.cy.toFixed(2));
-      c.setAttribute("r", body.r.toFixed(2));
+      c.setAttribute("cx", body.orbitR.toFixed(2));
+      c.setAttribute("cy", "0");
+      c.setAttribute("r", size.toFixed(2));
       spinG.appendChild(c);
+      phaseG.appendChild(spinG);
+      outerG.appendChild(phaseG);
     });
 
-    outerG.appendChild(spinG);
     return outerG;
   }
 
-  function buildRing(groupId, R, N, size, durationSeconds, clockwise) {
-    const g = document.getElementById(groupId);
+  function buildRing(N, size, durationA, durationB) {
+    const g = document.getElementById("ring");
     g.innerHTML = "";
     const frag = document.createDocumentFragment();
     for (let i = 0; i < N; i++) {
-      const theta = (2 * Math.PI * i) / N;
+      const thetaDeg = (360 * i) / N;
+      const theta = (thetaDeg * Math.PI) / 180;
       const px = CX + R * Math.cos(theta);
       const py = CY + R * Math.sin(theta);
-      frag.appendChild(buildPairGroup(px, py, size, durationSeconds, clockwise));
+      frag.appendChild(buildPairGroup(px, py, thetaDeg, size, durationA, durationB));
     }
     g.appendChild(frag);
   }
@@ -269,31 +273,25 @@
   }
 
   function render() {
-    const iSize = +document.getElementById("inner-size").value;
-    const iSpacing = +document.getElementById("inner-spacing").value;
-    const iSpeed = +document.getElementById("inner-speed").value;
-    const oSize = +document.getElementById("outer-size").value;
-    const oSpacing = +document.getElementById("outer-spacing").value;
-    const oSpeed = +document.getElementById("outer-speed").value;
+    const size = +document.getElementById("size").value;
+    const spacing = +document.getElementById("spacing").value;
+    const speedA = +document.getElementById("speed-a").value;
+    const speedB = +document.getElementById("speed-b").value;
 
-    const iCount = Math.max(6, Math.min(120, Math.round(360 / iSpacing)));
-    const oCount = Math.max(6, Math.min(120, Math.round(360 / oSpacing)));
+    const N = Math.max(6, Math.min(120, Math.round(360 / spacing)));
 
-    buildRing("inner", 170, iCount, iSize, SPEED_K / iSpeed, true);
-    buildRing("outer", 215, oCount, oSize, SPEED_K / oSpeed, false);
+    buildRing(N, size, SPEED_K / speedA, SPEED_K / speedB);
 
-    document.documentElement.style.setProperty("--inner-color", document.getElementById("inner-color").value);
-    document.documentElement.style.setProperty("--outer-color", document.getElementById("outer-color").value);
+    document.documentElement.style.setProperty("--color-a", document.getElementById("color-a").value);
+    document.documentElement.style.setProperty("--color-b", document.getElementById("color-b").value);
   }
 
-  pair("inner-size", "inner-size-n", render);
-  pair("inner-spacing", "inner-spacing-n", render);
-  pair("inner-speed", "inner-speed-n", render);
-  pair("outer-size", "outer-size-n", render);
-  pair("outer-spacing", "outer-spacing-n", render);
-  pair("outer-speed", "outer-speed-n", render);
-  document.getElementById("inner-color").addEventListener("input", render);
-  document.getElementById("outer-color").addEventListener("input", render);
+  pair("size", "size-n", render);
+  pair("spacing", "spacing-n", render);
+  pair("speed-a", "speed-a-n", render);
+  pair("speed-b", "speed-b-n", render);
+  document.getElementById("color-a").addEventListener("input", render);
+  document.getElementById("color-b").addEventListener("input", render);
 
   render();
 </script>
