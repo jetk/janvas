@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>janvas</title>
 <style>
+  :root {
+    --inner-color: #000000;
+    --outer-color: #000000;
+  }
   html, body {
     height: 100%;
     margin: 0;
@@ -26,8 +30,11 @@
     max-width: 70vmin;
     max-height: 70vmin;
   }
-  #inner polygon, #outer polygon {
-    fill: #000;
+  #inner polygon {
+    fill: var(--inner-color);
+  }
+  #outer polygon {
+    fill: var(--outer-color);
   }
   #inner, #outer {
     transform-box: fill-box;
@@ -69,8 +76,8 @@
   .ring-controls {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    min-width: 180px;
+    gap: 8px;
+    min-width: 220px;
   }
   .ring-controls h2 {
     margin: 0 0 2px;
@@ -79,17 +86,41 @@
     text-transform: uppercase;
     color: #2b2b2b;
   }
-  .ring-controls label {
+  .row {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 10px;
+    gap: 8px;
     font-size: 12px;
     color: #555;
   }
-  .ring-controls input[type="range"] {
+  .row .name {
+    width: 60px;
+    flex: none;
+  }
+  .row input[type="range"] {
     flex: 1;
     accent-color: #2b2b2b;
+  }
+  .row input[type="number"] {
+    width: 52px;
+    font-size: 12px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 2px 4px;
+  }
+  .row input[type="color"] {
+    width: 40px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: none;
+  }
+  .row .range-hint {
+    font-size: 10px;
+    color: #999;
+    width: 56px;
+    flex: none;
   }
 </style>
 </head>
@@ -105,21 +136,60 @@
   <div class="controls">
     <div class="ring-controls">
       <h2>Inner ring</h2>
-      <label>Size <input type="range" id="inner-size" min="3" max="14" step="0.5" value="5"></label>
-      <label>Spacing <input type="range" id="inner-count" min="16" max="120" step="1" value="60"></label>
-      <label>Speed <input type="range" id="inner-speed" min="2" max="40" step="1" value="12"></label>
+      <div class="row">
+        <span class="name">Size</span>
+        <input type="range" id="inner-size" min="3" max="14" step="0.5" value="5">
+        <input type="number" id="inner-size-n" min="3" max="14" step="0.5" value="5">
+        <span class="range-hint">3–14</span>
+      </div>
+      <div class="row">
+        <span class="name">Spacing</span>
+        <input type="range" id="inner-spacing" min="2" max="30" step="0.5" value="6">
+        <input type="number" id="inner-spacing-n" min="2" max="30" step="0.5" value="6">
+        <span class="range-hint">2–30°</span>
+      </div>
+      <div class="row">
+        <span class="name">Speed</span>
+        <input type="range" id="inner-speed" min="1" max="30" step="1" value="5">
+        <input type="number" id="inner-speed-n" min="1" max="30" step="1" value="5">
+        <span class="range-hint">1–30</span>
+      </div>
+      <div class="row">
+        <span class="name">Color</span>
+        <input type="color" id="inner-color" value="#000000">
+      </div>
     </div>
     <div class="ring-controls">
       <h2>Outer ring</h2>
-      <label>Size <input type="range" id="outer-size" min="3" max="14" step="0.5" value="5"></label>
-      <label>Spacing <input type="range" id="outer-count" min="16" max="160" step="1" value="84"></label>
-      <label>Speed <input type="range" id="outer-speed" min="2" max="40" step="1" value="18"></label>
+      <div class="row">
+        <span class="name">Size</span>
+        <input type="range" id="outer-size" min="3" max="14" step="0.5" value="5">
+        <input type="number" id="outer-size-n" min="3" max="14" step="0.5" value="5">
+        <span class="range-hint">3–14</span>
+      </div>
+      <div class="row">
+        <span class="name">Spacing</span>
+        <input type="range" id="outer-spacing" min="2" max="30" step="0.5" value="4.3">
+        <input type="number" id="outer-spacing-n" min="2" max="30" step="0.5" value="4.3">
+        <span class="range-hint">2–30°</span>
+      </div>
+      <div class="row">
+        <span class="name">Speed</span>
+        <input type="range" id="outer-speed" min="1" max="30" step="1" value="3">
+        <input type="number" id="outer-speed-n" min="1" max="30" step="1" value="3">
+        <span class="range-hint">1–30</span>
+      </div>
+      <div class="row">
+        <span class="name">Color</span>
+        <input type="color" id="outer-color" value="#000000">
+      </div>
     </div>
   </div>
 
 <script>
   const CX = 230, CY = 230;
   const SVGNS = "http://www.w3.org/2000/svg";
+  const SPEED_K = 60; // duration(s) = SPEED_K / speedValue -> higher speed value = faster spin
 
   function trianglePoints(R, N, hw, h, clockwise) {
     const sign = clockwise ? 1 : -1;
@@ -151,27 +221,54 @@
     g.appendChild(frag);
   }
 
-  const els = {
-    innerSize: document.getElementById("inner-size"),
-    innerCount: document.getElementById("inner-count"),
-    innerSpeed: document.getElementById("inner-speed"),
-    outerSize: document.getElementById("outer-size"),
-    outerCount: document.getElementById("outer-count"),
-    outerSpeed: document.getElementById("outer-speed"),
-  };
+  // Pair every range input with its number twin so either can be typed or dragged.
+  function pair(rangeId, numberId, onChange) {
+    const range = document.getElementById(rangeId);
+    const number = document.getElementById(numberId);
+    range.addEventListener("input", () => {
+      number.value = range.value;
+      onChange();
+    });
+    number.addEventListener("input", () => {
+      let v = +number.value;
+      const min = +number.min, max = +number.max;
+      if (Number.isNaN(v)) return;
+      v = Math.min(max, Math.max(min, v));
+      range.value = v;
+      onChange();
+    });
+  }
 
   function render() {
-    const iSize = +els.innerSize.value, iCount = +els.innerCount.value, iSpeed = +els.innerSpeed.value;
-    const oSize = +els.outerSize.value, oCount = +els.outerCount.value, oSpeed = +els.outerSpeed.value;
+    const iSize = +document.getElementById("inner-size").value;
+    const iSpacing = +document.getElementById("inner-spacing").value;
+    const iSpeed = +document.getElementById("inner-speed").value;
+    const oSize = +document.getElementById("outer-size").value;
+    const oSpacing = +document.getElementById("outer-spacing").value;
+    const oSpeed = +document.getElementById("outer-speed").value;
+
+    const iCount = Math.max(8, Math.min(200, Math.round(360 / iSpacing)));
+    const oCount = Math.max(8, Math.min(200, Math.round(360 / oSpacing)));
 
     buildRing("inner", 170, iCount, iSize, iSize * 3.2, true);
     buildRing("outer", 215, oCount, oSize, oSize * 3.2, false);
 
-    document.getElementById("inner").style.animationDuration = iSpeed + "s";
-    document.getElementById("outer").style.animationDuration = oSpeed + "s";
+    document.getElementById("inner").style.animationDuration = (SPEED_K / iSpeed) + "s";
+    document.getElementById("outer").style.animationDuration = (SPEED_K / oSpeed) + "s";
+
+    document.documentElement.style.setProperty("--inner-color", document.getElementById("inner-color").value);
+    document.documentElement.style.setProperty("--outer-color", document.getElementById("outer-color").value);
   }
 
-  Object.values(els).forEach((el) => el.addEventListener("input", render));
+  pair("inner-size", "inner-size-n", render);
+  pair("inner-spacing", "inner-spacing-n", render);
+  pair("inner-speed", "inner-speed-n", render);
+  pair("outer-size", "outer-size-n", render);
+  pair("outer-spacing", "outer-spacing-n", render);
+  pair("outer-speed", "outer-speed-n", render);
+  document.getElementById("inner-color").addEventListener("input", render);
+  document.getElementById("outer-color").addEventListener("input", render);
+
   render();
 </script>
 </body>
