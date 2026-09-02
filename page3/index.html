@@ -1,0 +1,817 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>janvas — kasuri</title>
+<style>
+  :root {
+    --dyed: #1e3a5f;
+    --undyed: #f2ece0;
+    --accent: #9c4a3a;
+    --cloth: #c9c1b3;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: #f5f4f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  body {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  .stage {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 44px 16px 12px;
+    min-height: 0;
+  }
+  /* Same rule as page 2, so the woven square lands at roughly the size of
+     the circle ring there. */
+  svg {
+    max-width: 70vmin;
+    max-height: 70vmin;
+  }
+
+  /* Dye colours. Set as classes so the colour pickers only have to touch
+     the CSS custom properties -- no rebuilding of the weave. */
+  .c-dyed   { fill: var(--dyed); }
+  .c-undyed { fill: var(--undyed); }
+  .c-accent { fill: var(--accent); }
+  .cloth    { fill: var(--cloth); }
+  .selvedge { fill: none; stroke: rgba(0,0,0,0.18); stroke-width: 1; }
+
+  /* Drift: each thread layer slides along its own direction by exactly one
+     pattern tile per cycle, so the loop is seamless. The distance lives in
+     --span, written by the script when the tile size changes. */
+  .drift {
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+    will-change: transform;
+  }
+  @keyframes drift-y { to { transform: translateY(var(--span)); } }
+  @keyframes drift-x { to { transform: translateX(var(--span)); } }
+
+  h1 {
+    margin: 0;
+    font-size: 14px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #2b2b2b;
+    font-weight: 500;
+  }
+  h1 small {
+    display: block;
+    margin-top: 4px;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: #8a8578;
+  }
+  .controls {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 40px;
+    padding: 16px 24px 32px;
+    border-top: 1px solid #ddd9d0;
+    background: #f5f4f0;
+    flex-wrap: wrap;
+  }
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 240px;
+    max-width: 420px;
+    flex: 1 1 240px;
+  }
+  .group h2 {
+    margin: 0 0 2px;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #2b2b2b;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #555;
+  }
+  .row .name {
+    width: 62px;
+    flex: none;
+  }
+  .row input[type="range"] {
+    flex: 1;
+    min-width: 60px;
+    accent-color: #2b2b2b;
+  }
+  .row input[type="number"] {
+    width: 56px;
+    flex: none;
+    font-size: 16px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 4px;
+  }
+  .row input[type="color"] {
+    width: 44px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: none;
+  }
+  .row .range-hint {
+    font-size: 10px;
+    color: #999;
+    width: 56px;
+    flex: none;
+  }
+  select, textarea, button {
+    font-family: inherit;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    color: #2b2b2b;
+  }
+  select {
+    width: 100%;
+    font-size: 16px;
+    padding: 6px;
+  }
+  .grids {
+    display: flex;
+    gap: 10px;
+  }
+  .grid-box {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .grid-box label {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #8a8578;
+  }
+  textarea {
+    width: 100%;
+    /* 16px keeps iOS from zooming the page when the field is focused. */
+    font: 16px/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 6px;
+    white-space: pre;
+    overflow-x: auto;
+    resize: vertical;
+    -webkit-text-size-adjust: 100%;
+  }
+  .buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  button {
+    font-size: 13px;
+    padding: 8px 12px;
+    min-height: 38px;
+    cursor: pointer;
+  }
+  button:active { background: #eee; }
+  details {
+    font-size: 12px;
+    line-height: 1.55;
+    color: #555;
+  }
+  details summary {
+    cursor: pointer;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #2b2b2b;
+    padding: 6px 0;
+  }
+  details p { margin: 8px 0; }
+  details code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: #ebe8e1;
+    padding: 1px 4px;
+    border-radius: 2px;
+  }
+  details ul { margin: 8px 0; padding-left: 18px; }
+  #snippet {
+    display: none;
+    width: 100%;
+    margin-top: 8px;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .note {
+    font-size: 11px;
+    color: #8a8578;
+    min-height: 14px;
+  }
+  .pagenav {
+    position: fixed;
+    top: 12px;
+    left: 16px;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    z-index: 2;
+  }
+  .pagenav a {
+    color: #2b2b2b;
+    text-decoration: none;
+    border-bottom: 1px solid #2b2b2b;
+  }
+
+  @media (max-width: 720px) {
+    .stage { padding-top: 40px; }
+    /* A phone is short on vmin; let the cloth use the width instead so the
+       weave stays legible. */
+    svg {
+      width: 92vw;
+      height: 92vw;
+      max-width: none;
+      max-height: none;
+    }
+    .controls {
+      flex-direction: column;
+      gap: 22px;
+      padding: 16px 16px 40px;
+    }
+    .group { max-width: none; min-width: 0; width: 100%; }
+    .row .name { width: 56px; }
+    .row .range-hint { display: none; }
+  }
+</style>
+</head>
+<body>
+  <nav class="pagenav"><a href="../page2/">← Page 2</a></nav>
+
+  <div class="stage">
+    <svg id="canvas" viewBox="0 0 460 460" width="460" height="460" xmlns="http://www.w3.org/2000/svg">
+      <defs id="defs">
+        <clipPath id="cloth-clip"><rect x="0" y="0" width="380" height="380"></rect></clipPath>
+        <!-- These three are filled in by the script and never replaced, so the
+             url(#...) references below stay live. -->
+        <pattern id="warp-pat" patternUnits="userSpaceOnUse" width="8" height="8"></pattern>
+        <pattern id="weft-pat" patternUnits="userSpaceOnUse" width="8" height="8"></pattern>
+        <pattern id="weave-pat" patternUnits="userSpaceOnUse" width="16" height="16"></pattern>
+        <mask id="weave-mask" maskUnits="userSpaceOnUse" x="0" y="0" width="380" height="380">
+          <rect x="0" y="0" width="380" height="380" fill="url(#weave-pat)"></rect>
+        </mask>
+      </defs>
+      <!-- The cloth is inset in the 460 viewBox so the woven square lands at
+           roughly the diameter of the circle ring on page 2. -->
+      <g transform="translate(40,40)">
+        <g clip-path="url(#cloth-clip)">
+          <rect class="cloth" x="0" y="0" width="380" height="380"></rect>
+          <!-- Warp layer: whole vertical threads, drawn first. -->
+          <g id="warp-drift" class="drift">
+            <rect id="warp-fill" x="-380" y="-380" width="1140" height="1140" fill="url(#warp-pat)"></rect>
+          </g>
+          <!-- Weft layer: masked to the picks that float on top in a plain
+               weave, so warp shows through in the alternating squares. -->
+          <g mask="url(#weave-mask)">
+            <g id="weft-drift" class="drift">
+              <rect id="weft-fill" x="-380" y="-380" width="1140" height="1140" fill="url(#weft-pat)"></rect>
+            </g>
+          </g>
+        </g>
+        <rect class="selvedge" x="0" y="0" width="380" height="380"></rect>
+      </g>
+    </svg>
+    <h1>janvas<small>kasuri 絣</small></h1>
+  </div>
+
+  <div class="controls">
+    <div class="group">
+      <h2>Warp — tate 経</h2>
+      <div class="row">
+        <span class="name">Threads</span>
+        <input type="range" id="warp-count" min="8" max="96" step="1" value="48">
+        <input type="number" id="warp-count-n" min="8" max="96" step="1" value="48">
+        <span class="range-hint">8–96</span>
+      </div>
+      <div class="row">
+        <span class="name">Drift</span>
+        <input type="range" id="warp-speed" min="-30" max="30" step="1" value="0">
+        <input type="number" id="warp-speed-n" min="-30" max="30" step="1" value="0">
+        <span class="range-hint">−30–30</span>
+      </div>
+
+      <h2>Weft — yoko 緯</h2>
+      <div class="row">
+        <span class="name">Picks</span>
+        <input type="range" id="weft-count" min="8" max="96" step="1" value="48">
+        <input type="number" id="weft-count-n" min="8" max="96" step="1" value="48">
+        <span class="range-hint">8–96</span>
+      </div>
+      <div class="row">
+        <span class="name">Drift</span>
+        <input type="range" id="weft-speed" min="-30" max="30" step="1" value="3">
+        <input type="number" id="weft-speed-n" min="-30" max="30" step="1" value="3">
+        <span class="range-hint">−30–30</span>
+      </div>
+
+      <h2>Dye</h2>
+      <div class="row">
+        <span class="name">Indigo #</span>
+        <input type="color" id="col-dyed" value="#1e3a5f">
+        <span class="name">Undyed .</span>
+        <input type="color" id="col-undyed" value="#f2ece0">
+      </div>
+      <div class="row">
+        <span class="name">Accent +</span>
+        <input type="color" id="col-accent" value="#9c4a3a">
+        <span class="name">Cloth</span>
+        <input type="color" id="col-cloth" value="#c9c1b3">
+      </div>
+    </div>
+
+    <div class="group">
+      <h2>Pattern</h2>
+      <div class="row">
+        <select id="preset"></select>
+      </div>
+      <div class="grids">
+        <div class="grid-box">
+          <label for="warp-grid">Warp threads (columns)</label>
+          <textarea id="warp-grid" rows="9" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+        </div>
+        <div class="grid-box">
+          <label for="weft-grid">Weft picks (rows)</label>
+          <textarea id="weft-grid" rows="9" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off"></textarea>
+        </div>
+      </div>
+      <div class="buttons">
+        <button type="button" id="revert">Reload preset</button>
+        <button type="button" id="mirror">Copy warp → weft</button>
+        <button type="button" id="snippet-btn">Preset code</button>
+      </div>
+      <div class="note" id="note"></div>
+      <textarea id="snippet" rows="10" readonly spellcheck="false"></textarea>
+
+      <details>
+        <summary>How to draw your own kasuri</summary>
+        <p>Kasuri (絣) is Japanese ikat: the pattern is bound off and dyed
+        <em>into the threads</em> before anything is woven, so it only appears
+        as the cloth comes off the loom.</p>
+        <p>The two boxes above are pictures of the cloth, one per thread
+        system. Characters: <code>#</code> indigo (dyed), <code>.</code>
+        undyed, <code>+</code> accent. Anything else is read as
+        <code>#</code>, blank lines are ignored, and short lines are padded.</p>
+        <ul>
+          <li><strong>Warp box</strong> — every <em>column</em> is one warp
+          thread. Reading down a column gives the dye sequence tied onto that
+          thread before it is dressed on the loom.</li>
+          <li><strong>Weft box</strong> — every <em>row</em> is one weft pick.
+          Reading across gives that pick's dye sequence.</li>
+          <li>Both pictures tile across the cloth and may be different sizes —
+          a one-line warp box is a plain set of stripes.</li>
+        </ul>
+        <p>The cloth is a plain weave, so at each crossing either the warp or
+        the weft floats on top, in a checkerboard. A crossing reads
+        <em>solid</em> only where warp and weft carry the same colour — true
+        <em>tate-yoko-gasuri</em>, double ikat. Where only one of the two is
+        dyed you get the half-tone speckle that gives kasuri its feathered
+        edge. Try dyeing a shape in the warp box only.</p>
+        <p>The <strong>Drift</strong> sliders slide a layer along its own
+        threads, one pattern tile per cycle: 0 is still, negative runs the
+        other way. Drifting one layer pulls the design out of register — the
+        thing a kasuri weaver spends the whole cloth fighting.</p>
+        <p><strong>To keep a design:</strong> press <em>Preset code</em>, then
+        paste the printed entry into the <code>PRESETS</code> object near the
+        top of the script in <code>page3/index.html</code>. Give it a unique
+        key and label; the menu is built from that object, so it shows up on
+        the next reload.</p>
+      </details>
+    </div>
+  </div>
+
+<script>
+  const SVGNS = "http://www.w3.org/2000/svg";
+  const S = 380;        // side of the woven square, in viewBox units
+  const SPEED_K = 60;   // seconds per pattern tile = SPEED_K / |drift|
+
+  // --- Kasuri designs ---------------------------------------------------
+  // A design is two pictures of the cloth, drawn the way you'd see it:
+  //
+  //   warp — vertical threads (tate 経). Each COLUMN of the picture is one
+  //          warp thread; reading DOWN the column is its dye sequence.
+  //   weft — horizontal picks (yoko 緯). Each ROW of the picture is one
+  //          weft thread; reading ACROSS the row is its dye sequence.
+  //
+  // Characters:  '#' indigo (dyed)   '.' undyed   '+' accent
+  // Each picture tiles independently, so the two may differ in size.
+  //
+  // Because the cloth is a plain weave, a crossing is solid only where the
+  // warp and the weft agree; where just one of them is dyed the crossing is
+  // half-tone speckle — kasuri's feathered edge.
+  //
+  // To add a pattern: copy an entry, give it a new key, a label and two
+  // pictures. The menu is generated from this object. The "Preset code"
+  // button prints an entry from whatever is currently in the two boxes.
+  const PRESETS = {
+    igeta: {
+      label: "Igeta 井桁 — well-crib",
+      warp: [
+        "############",
+        "###.####.###",
+        "###.####.###",
+        "#..........#",
+        "###.####.###",
+        "###.####.###",
+        "###.####.###",
+        "###.####.###",
+        "#..........#",
+        "###.####.###",
+        "###.####.###",
+        "############",
+      ],
+      weft: [
+        "############",
+        "###.####.###",
+        "###.####.###",
+        "#..........#",
+        "###.####.###",
+        "###.####.###",
+        "###.####.###",
+        "###.####.###",
+        "#..........#",
+        "###.####.###",
+        "###.####.###",
+        "############",
+      ],
+    },
+    juji: {
+      label: "Jūji-gasuri 十字絣 — cross",
+      warp: [
+        "########",
+        "########",
+        "####.###",
+        "####.###",
+        "##.....#",
+        "####.###",
+        "####.###",
+        "########",
+      ],
+      weft: [
+        "########",
+        "########",
+        "####.###",
+        "####.###",
+        "##.....#",
+        "####.###",
+        "####.###",
+        "########",
+      ],
+    },
+    kagasuri: {
+      label: "Kagasuri 蚊絣 — mosquito dots",
+      warp: [
+        "####",
+        "#.##",
+        "####",
+        "###.",
+      ],
+      weft: [
+        "####",
+        "#.##",
+        "####",
+        "###.",
+      ],
+    },
+    koshi: {
+      label: "Kōshi 格子 — lattice",
+      warp: [
+        "#..#####",
+        "#..#####",
+        "#..#####",
+        "#..#####",
+        "#..#####",
+        "#..#####",
+        "#..#####",
+        "#..#####",
+      ],
+      weft: [
+        "########",
+        "........",
+        "........",
+        "########",
+        "########",
+        "########",
+        "########",
+        "########",
+      ],
+    },
+    yagasuri: {
+      label: "Yagasuri 矢絣 — arrow feather",
+      warp: [
+        "###..###",
+        "##.##.##",
+        "#.####.#",
+        ".######.",
+        "###..###",
+        "##.##.##",
+        "#.####.#",
+        ".######.",
+      ],
+      weft: [
+        "###..###",
+        "##.##.##",
+        "#.####.#",
+        ".######.",
+        "###..###",
+        "##.##.##",
+        "#.####.#",
+        ".######.",
+      ],
+    },
+    arare: {
+      label: "Arare 霰 — hail",
+      warp: [
+        "..######",
+        "..######",
+        "########",
+        "########",
+        "######..",
+        "######..",
+        "########",
+        "########",
+      ],
+      weft: [
+        "..######",
+        "..######",
+        "########",
+        "########",
+        "######..",
+        "######..",
+        "########",
+        "########",
+      ],
+    },
+    tate: {
+      label: "Tate-gasuri 経絣 — warp ikat only",
+      warp: [
+        "##.###",
+        "##.###",
+        "######",
+        "#####.",
+        "#####.",
+        "######",
+      ],
+      weft: [
+        "######",
+      ],
+    },
+    yoko: {
+      label: "Yoko-gasuri 緯絣 — weft ikat only",
+      warp: [
+        "######",
+      ],
+      weft: [
+        "######",
+        "######",
+        "..####",
+        "######",
+        "######",
+        "###..#",
+      ],
+    },
+    shima: {
+      label: "Shima 縞 — stripes with accent",
+      warp: [
+        "#..#+#####",
+      ],
+      weft: [
+        "##########",
+      ],
+    },
+    muji: {
+      label: "Muji 無地 — plain indigo (blank canvas)",
+      warp: ["#"],
+      weft: ["#"],
+    },
+  };
+  const DEFAULT_PRESET = "igeta";
+
+  // --- Weave construction ----------------------------------------------
+  const GROUND = "#";
+  const CLASS_OF = { "#": "c-dyed", ".": "c-undyed", "+": "c-accent" };
+
+  const warpDrift = document.getElementById("warp-drift");
+  const weftDrift = document.getElementById("weft-drift");
+  const warpTa = document.getElementById("warp-grid");
+  const weftTa = document.getElementById("weft-grid");
+  const presetSel = document.getElementById("preset");
+  const note = document.getElementById("note");
+
+  // Read a textarea into a rectangular grid of legal characters.
+  function parseGrid(text) {
+    const rows = text.split("\n").map((r) => r.replace(/\s+/g, "")).filter((r) => r.length);
+    if (!rows.length) return [GROUND];
+    const w = Math.max(...rows.map((r) => r.length));
+    return rows.map((r) =>
+      (r + GROUND.repeat(w)).slice(0, w).split("")
+        .map((ch) => (CLASS_OF[ch] ? ch : GROUND)).join("")
+    );
+  }
+
+  // Resize a pattern tile and refill it from scratch. The pattern element
+  // itself is never replaced, so every url(#...) reference stays live.
+  function resetPattern(id, w, h) {
+    const p = document.getElementById(id);
+    p.setAttribute("width", w.toFixed(4));
+    p.setAttribute("height", h.toFixed(4));
+    while (p.firstChild) p.removeChild(p.firstChild);
+    return p;
+  }
+
+  function addRect(parent, x, y, w, h, cls) {
+    const r = document.createElementNS(SVGNS, "rect");
+    r.setAttribute("x", x.toFixed(3));
+    r.setAttribute("y", y.toFixed(3));
+    r.setAttribute("width", Math.max(0, w).toFixed(3));
+    r.setAttribute("height", Math.max(0, h).toFixed(3));
+    if (cls) r.setAttribute("class", cls);
+    parent.appendChild(r);
+    return r;
+  }
+
+  // Warp layer: one tile of the warp picture. Runs of the same dye along a
+  // thread are merged into a single rect (fewer nodes, no seams), and each
+  // run is stretched a hair past its end so the next run paints over the
+  // join instead of leaving an antialiased hairline.
+  function buildWarpPattern(grid, cw, ch) {
+    const rows = grid.length, cols = grid[0].length;
+    const p = resetPattern("warp-pat", cols * cw, rows * ch);
+    const gap = Math.min(1, cw * 0.07); // gutter between neighbouring threads
+    for (let c = 0; c < cols; c++) {
+      let r = 0;
+      while (r < rows) {
+        let end = r + 1;
+        while (end < rows && grid[end][c] === grid[r][c]) end++;
+        addRect(p, c * cw + gap, r * ch, cw - 2 * gap, (end - r) * ch + 0.3, CLASS_OF[grid[r][c]]);
+        r = end;
+      }
+    }
+  }
+
+  // Weft layer: the same idea rotated a quarter turn.
+  function buildWeftPattern(grid, cw, ch) {
+    const rows = grid.length, cols = grid[0].length;
+    const p = resetPattern("weft-pat", cols * cw, rows * ch);
+    const gap = Math.min(1, ch * 0.07); // gutter between neighbouring picks
+    for (let r = 0; r < rows; r++) {
+      let c = 0;
+      while (c < cols) {
+        let end = c + 1;
+        while (end < cols && grid[r][end] === grid[r][c]) end++;
+        addRect(p, c * cw, r * ch + gap, (end - c) * cw + 0.3, ch - 2 * gap, CLASS_OF[grid[r][c]]);
+        c = end;
+      }
+    }
+  }
+
+  // The interlacing itself: a 2x2 checkerboard mask that stays with the
+  // cloth while the thread layers drift underneath it. White = the weft
+  // floats on top here; everywhere else the warp layer below shows through.
+  function buildWeaveMask(cw, ch) {
+    const p = resetPattern("weave-pat", 2 * cw, 2 * ch);
+    addRect(p, cw, 0, cw, ch).setAttribute("fill", "#fff");
+    addRect(p, 0, ch, cw, ch).setAttribute("fill", "#fff");
+  }
+
+  // One pattern tile per cycle keeps the loop seamless. 0 stops the layer
+  // dead at its registered position; a negative value runs it backwards.
+  function setDrift(el, keyframes, span, speed) {
+    el.style.setProperty("--span", span.toFixed(3) + "px");
+    if (!speed) {
+      el.style.animationName = "none";
+      return;
+    }
+    el.style.animationName = keyframes;
+    el.style.animationDuration = (SPEED_K / Math.abs(speed)) + "s";
+    el.style.animationDirection = speed < 0 ? "reverse" : "normal";
+  }
+
+  // Pair every range input with its number twin so either can be typed or dragged.
+  function pair(rangeId, numberId, onChange) {
+    const range = document.getElementById(rangeId);
+    const number = document.getElementById(numberId);
+    range.addEventListener("input", () => {
+      number.value = range.value;
+      onChange();
+    });
+    number.addEventListener("input", () => {
+      let v = +number.value;
+      const min = +number.min, max = +number.max;
+      if (Number.isNaN(v)) return;
+      v = Math.min(max, Math.max(min, v));
+      range.value = v;
+      onChange();
+    });
+  }
+
+  const val = (id) => +document.getElementById(id).value;
+
+  function render() {
+    const warpCount = val("warp-count");
+    const weftCount = val("weft-count");
+    const cw = S / warpCount;  // width of one warp thread
+    const ch = S / weftCount;  // height of one weft pick
+
+    const warpGrid = parseGrid(warpTa.value);
+    const weftGrid = parseGrid(weftTa.value);
+
+    buildWeaveMask(cw, ch);
+    buildWarpPattern(warpGrid, cw, ch);
+    buildWeftPattern(weftGrid, cw, ch);
+
+    setDrift(warpDrift, "drift-y", warpGrid.length * ch, val("warp-speed"));
+    setDrift(weftDrift, "drift-x", weftGrid[0].length * cw, val("weft-speed"));
+
+    note.textContent =
+      `warp tile ${warpGrid[0].length}×${warpGrid.length} · weft tile ${weftGrid[0].length}×${weftGrid.length}`;
+  }
+
+  function setColor(id, name) {
+    const input = document.getElementById(id);
+    const apply = () => document.documentElement.style.setProperty(name, input.value);
+    input.addEventListener("input", apply);
+    apply();
+  }
+
+  function loadPreset(key) {
+    const p = PRESETS[key];
+    if (!p) return;
+    warpTa.value = p.warp.join("\n");
+    weftTa.value = p.weft.join("\n");
+    render();
+  }
+
+  // --- Wiring -----------------------------------------------------------
+  Object.keys(PRESETS).forEach((key) => {
+    const o = document.createElement("option");
+    o.value = key;
+    o.textContent = PRESETS[key].label;
+    presetSel.appendChild(o);
+  });
+  presetSel.value = DEFAULT_PRESET;
+  presetSel.addEventListener("change", () => loadPreset(presetSel.value));
+
+  pair("warp-count", "warp-count-n", render);
+  pair("warp-speed", "warp-speed-n", render);
+  pair("weft-count", "weft-count-n", render);
+  pair("weft-speed", "weft-speed-n", render);
+  warpTa.addEventListener("input", render);
+  weftTa.addEventListener("input", render);
+
+  setColor("col-dyed", "--dyed");
+  setColor("col-undyed", "--undyed");
+  setColor("col-accent", "--accent");
+  setColor("col-cloth", "--cloth");
+
+  document.getElementById("revert").addEventListener("click", () => loadPreset(presetSel.value));
+  document.getElementById("mirror").addEventListener("click", () => {
+    weftTa.value = warpTa.value;
+    render();
+  });
+
+  document.getElementById("snippet-btn").addEventListener("click", () => {
+    const quote = (rows) => rows.map((r) => `        "${r}",`).join("\n");
+    const code =
+      "    myPattern: {\n" +
+      '      label: "My pattern",\n' +
+      "      warp: [\n" + quote(parseGrid(warpTa.value)) + "\n      ],\n" +
+      "      weft: [\n" + quote(parseGrid(weftTa.value)) + "\n      ],\n" +
+      "    },";
+    const box = document.getElementById("snippet");
+    box.value = code;
+    box.style.display = "block";
+    note.textContent = "Paste this into the PRESETS object in page3/index.html.";
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(code).then(
+        () => { note.textContent = "Copied — paste into the PRESETS object in page3/index.html."; },
+        () => {}
+      );
+    }
+  });
+
+  loadPreset(DEFAULT_PRESET);
+</script>
+</body>
+</html>
