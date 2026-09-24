@@ -249,6 +249,12 @@
         <input type="text" id="guide-text" value="無極" autocomplete="off" spellcheck="false">
         <input type="checkbox" id="guide-on" checked>
       </div>
+      <div class="row">
+        <span class="name">Pen</span>
+        <input type="range" id="pen" min="0.5" max="8" step="0.1" value="2.7">
+        <input type="number" id="pen-n" min="0.5" max="8" step="0.1" value="2.7">
+        <span class="range-hint">% of side</span>
+      </div>
       <div class="note" id="note"></div>
     </div>
 
@@ -333,7 +339,9 @@
   // --- Drawing ----------------------------------------------------------
   // Strokes are polylines in unit coordinates (0..1 on both axes) so the
   // pad and the output can be any size. One pen: fixed colour and width.
-  const PEN = 0.045;          // pen width as a fraction of the pad side
+  // Pen width as a fraction of the pad side. It applies to the whole
+  // drawing, so changing it re-inks every stroke already on the pad.
+  const penWidth = () => +document.getElementById("pen").value / 100;
   const INK = "#1c1c1c";
   const STORE_KEY = "janvas.page4.strokes";
 
@@ -361,14 +369,15 @@
   function inkStrokes(ctx, list, side) {
     ctx.strokeStyle = INK;
     ctx.fillStyle = INK;
-    ctx.lineWidth = PEN * side;
+    const pen = penWidth();
+    ctx.lineWidth = pen * side;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
     for (const s of list) {
       if (s.length === 1) {
         // A tap is a dot.
         ctx.beginPath();
-        ctx.arc(s[0][0] * side, s[0][1] * side, PEN * side / 2, 0, Math.PI * 2);
+        ctx.arc(s[0][0] * side, s[0][1] * side, pen * side / 2, 0, Math.PI * 2);
         ctx.fill();
         continue;
       }
@@ -465,6 +474,7 @@
   });
   guideText.addEventListener("input", () => { drawGuide(); if (!strokes.length) retarget(); });
   guideOn.addEventListener("change", drawGuide);
+  pair("pen", "pen-n", () => { drawPad(); retarget(); });
 
   // --- Motes ------------------------------------------------------------
   // Fireflies: a mote is only visible while it moves, and brighter the
