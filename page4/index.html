@@ -145,6 +145,16 @@
     padding: 4px 6px;
   }
   .row input[type="checkbox"] { accent-color: #2b2b2b; }
+  select {
+    width: 100%;
+    font-family: inherit;
+    font-size: 16px;
+    padding: 6px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    color: #2b2b2b;
+  }
   .row .range-hint {
     font-size: 10px;
     color: #999;
@@ -234,6 +244,10 @@
 
   <div class="controls">
     <div class="group">
+      <h2>Stage</h2>
+      <div class="row">
+        <select id="stage"></select>
+      </div>
       <h2>Draw</h2>
       <div class="pad-wrap">
         <canvas id="guide"></canvas>
@@ -297,6 +311,12 @@
         <span class="range-hint">0 = still</span>
       </div>
       <div class="row">
+        <span class="name">Breath</span>
+        <input type="range" id="breath" min="0" max="20" step="0.5" value="0">
+        <input type="number" id="breath-n" min="0" max="20" step="0.5" value="0">
+        <span class="range-hint">s · 0 = none</span>
+      </div>
+      <div class="row">
         <span class="name">Cycle</span>
         <input type="range" id="cycle" min="0" max="120" step="1" value="30">
         <input type="number" id="cycle-n" min="0" max="120" step="1" value="30">
@@ -305,10 +325,26 @@
 
       <h2>Colour</h2>
       <div class="row">
-        <span class="name">Motes</span>
+        <span class="name">Moving</span>
         <input type="color" id="col-mote" value="#ffffff">
+        <span class="name">Still</span>
+        <input type="color" id="col-still" value="#f5f4f0">
+      </div>
+      <div class="row">
         <span class="name">Ground</span>
         <input type="color" id="col-ground" value="#f5f4f0">
+      </div>
+      <div class="row">
+        <span class="name">Pivot</span>
+        <input type="range" id="pivot" min="0" max="90" step="1" value="0">
+        <input type="number" id="pivot-n" min="0" max="90" step="1" value="0">
+        <span class="range-hint">% · 0 = glow</span>
+      </div>
+      <div class="row">
+        <span class="name">Strays</span>
+        <input type="range" id="strays" min="0" max="100" step="1" value="100">
+        <input type="number" id="strays-n" min="0" max="100" step="1" value="100">
+        <span class="range-hint">% opacity</span>
       </div>
 
       <details>
@@ -328,6 +364,19 @@
         motes drift on a slow current that <strong>Swarm</strong> speeds up.
         <strong>Cycle</strong> runs swarm → gather → hold → release; set it
         to 0 to let the shape form once and stay.</p>
+        <p><strong>Breath</strong> makes the crawling motes stop and start.
+        Waves of rest pass across the drawing, one full breath every so many
+        seconds.</p>
+        <p>Speed sets a mote's colour. A fast mote takes the
+        <strong>Moving</strong> colour, a still one the <strong>Still</strong>
+        colour, and the <strong>Pivot</strong> is the speed in between where
+        a mote vanishes into the ground. At pivot 0 only moving motes show.
+        <strong>Strays</strong> dims the motes that never gather.</p>
+        <p><strong>Stages</strong> load a colour and motion setting, and each
+        stage keeps its own drawing. 無極 is light on white with no
+        distinction yet. In 太極 movement gives rise to yang and stillness to
+        yin (太極動而生陽，靜而生陰): moving motes turn light and resting motes
+        turn dark on a mid grey.</p>
         <p>White motes on a near-white ground are meant to be barely there.
         To see what they are doing, turn the mote colour dark for a moment.</p>
         <p>Your drawing is kept in this browser between visits.</p>
@@ -343,7 +392,8 @@
   // drawing, so changing it re-inks every stroke already on the pad.
   const penWidth = () => +document.getElementById("pen").value / 100;
   const INK = "#1c1c1c";
-  const STORE_KEY = "janvas.page4.strokes";
+  const STAGE_KEY = "janvas.page4.stage";
+  let storeKey = "janvas.page4.strokes";
 
   const pad = document.getElementById("pad");
   const guide = document.getElementById("guide");
@@ -356,13 +406,16 @@
   let strokes = [];
   let current = null;
 
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
-    if (Array.isArray(saved)) strokes = saved;
-  } catch (e) { /* private window or blocked storage: start blank */ }
+  function loadStrokes() {
+    strokes = [];
+    try {
+      const saved = JSON.parse(localStorage.getItem(storeKey) || "[]");
+      if (Array.isArray(saved)) strokes = saved;
+    } catch (e) { /* private window or blocked storage: start blank */ }
+  }
 
   function saveStrokes() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(strokes)); } catch (e) {}
+    try { localStorage.setItem(storeKey, JSON.stringify(strokes)); } catch (e) {}
   }
 
   // Ink a set of strokes onto a context whose drawable area is side x side.
@@ -488,7 +541,7 @@
   const out = document.getElementById("out");
   const outCtx = out.getContext("2d");
   const SAMPLE = 320;         // resolution of the ink mask
-  const LEVELS = 6;           // brightness steps, so drawing batches by alpha
+  const LEVELS = 11;          // speed steps, so drawing batches by colour
 
   let N = 0;
   let px, py, vx, vy;         // position, velocity
@@ -622,6 +675,8 @@
     // Speed (unit/frame) at which a mote starts to glow, and is at full glow.
     const glow0 = 0.0011, glow1 = 0.0045;
     const damp = Math.pow(0.94, dt);
+    const breath = val("breath");
+    const bw = breath ? (2 * Math.PI) / breath : 0;
 
     for (let i = 0; i < N; i++) {
       let x = px[i], y = py[i];
@@ -629,7 +684,12 @@
       const ax = Math.cos(a), ay = Math.sin(a);
 
       if (tx[i] === tx[i] && hasShape) {     // false for NaN (stray)
-        crawl(i, step);
+        // Breath: a wave of rest runs across the drawing, so parts of it
+        // stop (and go still-coloured) while the rest keeps moving.
+        const m = breath
+          ? smooth(-0.25, 0.25, Math.sin(t * bw - (tx[i] * 3 + ty[i] * 2) * Math.PI + seed[i] * 0.4))
+          : 1;
+        if (m > 0) crawl(i, step * m);
         // Stagger arrivals so the shape condenses rather than snaps.
         const gi = smooth(0, 1, (g - delay[i] * 0.45) / 0.55);
         const k = 0.006 * gi;
@@ -650,33 +710,50 @@
       px[i] = x; py[i] = y;
 
       const v = Math.hypot(vx[i], vy[i]);
-      level[i] = Math.round(smooth(glow0, glow1, v) * (LEVELS - 1));
+      level[i] = Math.round(smooth(glow0, glow1, v) * (LEVELS - 1)) +
+        (tx[i] === tx[i] && hasShape ? 0 : LEVELS);
     }
 
     draw();
     requestAnimationFrame(frame);
   }
 
-  // Each mote is drawn as a short streak back along its velocity, so
-  // movement reads as light and a still mote is simply not there.
+  // Each mote is drawn as a short streak back along its velocity. Its speed
+  // picks the colour: above the pivot it fades in as the moving colour,
+  // below it as the still colour, and right at the pivot it is invisible.
+  // With the pivot at 0 a still mote is simply not there.
   function draw() {
     const W = out.width, H = out.height;
     const dpr = window.devicePixelRatio || 1;
     const alpha = val("alpha") / 100;
+    const strays = val("strays") / 100;
+    const pivot = val("pivot") / 100;
+    const moving = document.getElementById("col-mote").value;
+    const still = document.getElementById("col-still").value;
     const TRAIL = 2.5;  // frames of motion per streak
     outCtx.globalAlpha = 1;
     outCtx.fillStyle = document.getElementById("col-ground").value;
     outCtx.fillRect(0, 0, W, H);
-    outCtx.strokeStyle = document.getElementById("col-mote").value;
     outCtx.lineWidth = val("size") * dpr;
     outCtx.lineCap = "round";
-    for (let b = 1; b < LEVELS; b++) {
-      outCtx.globalAlpha = alpha * (b / (LEVELS - 1));
+    // Buckets 0..LEVELS-1 are gatherers, LEVELS.. are strays.
+    for (let b = 0; b < 2 * LEVELS; b++) {
+      const sp = (b % LEVELS) / (LEVELS - 1);
+      let u, col;
+      if (sp < pivot) { u = (pivot - sp) / pivot; col = still; }
+      else { u = (sp - pivot) / (1 - pivot); col = moving; }
+      u *= alpha * (b < LEVELS ? 1 : strays);
+      if (u <= 0.004) continue;
+      outCtx.globalAlpha = Math.min(1, u);
+      outCtx.strokeStyle = col;
       outCtx.beginPath();
       for (let i = 0; i < N; i++) {
         if (level[i] !== b) continue;
         const x = px[i] * W, y = py[i] * H;
-        outCtx.moveTo(x - vx[i] * W * TRAIL, y - vy[i] * H * TRAIL);
+        let dx = vx[i] * W * TRAIL, dy = vy[i] * H * TRAIL;
+        // Some browsers skip zero-length strokes; keep still motes a dot.
+        if (Math.abs(dx) + Math.abs(dy) < 0.5) dx = 0.5;
+        outCtx.moveTo(x - dx, y - dy);
         outCtx.lineTo(x, y);
       }
       outCtx.stroke();
@@ -708,6 +785,9 @@
   pair("swarm", "swarm-n");
   pair("cycle", "cycle-n");
   pair("crawl", "crawl-n");
+  pair("breath", "breath-n");
+  pair("pivot", "pivot-n");
+  pair("strays", "strays-n");
 
   const ground = document.getElementById("col-ground");
   const applyGround = () => document.documentElement.style.setProperty("--ground", ground.value);
@@ -715,6 +795,63 @@
   applyGround();
 
   document.getElementById("replay").addEventListener("click", () => {
+    scatter();
+    t0 = performance.now();
+  });
+
+  // --- Stages -----------------------------------------------------------
+  // Each stage is a starting point: guide text, colours and motion. Picking
+  // one loads its settings and its own saved drawing. Tweak freely after.
+  // 無極 keeps the original storage key so earlier drawings survive.
+  const STAGES = {
+    wuji: {
+      label: "無極 Wuji — light on white",
+      store: "janvas.page4.strokes",
+      guide: "無極",
+      set: {
+        count: 7000, gather: 75, size: 1.4, alpha: 70, swarm: 40, crawl: 6,
+        breath: 0, cycle: 30, pivot: 0, strays: 100,
+        "col-mote": "#ffffff", "col-still": "#f5f4f0", "col-ground": "#f5f4f0",
+      },
+    },
+    taiji: {
+      label: "太極 Taiji — motion light, stillness dark",
+      store: "janvas.page4.strokes.taiji",
+      guide: "太極",
+      set: {
+        count: 9000, gather: 80, size: 1.6, alpha: 75, swarm: 20, crawl: 7,
+        breath: 6, cycle: 30, pivot: 35, strays: 55,
+        "col-mote": "#ffffff", "col-still": "#141414", "col-ground": "#8e8c87",
+      },
+    },
+  };
+  const stageSel = document.getElementById("stage");
+  Object.keys(STAGES).forEach((key) => {
+    const o = document.createElement("option");
+    o.value = key;
+    o.textContent = STAGES[key].label;
+    stageSel.appendChild(o);
+  });
+
+  function applyStage(key) {
+    const st = STAGES[key] || STAGES.wuji;
+    for (const [id, v] of Object.entries(st.set)) {
+      document.getElementById(id).value = v;
+      const twin = document.getElementById(id + "-n");
+      if (twin) twin.value = v;
+    }
+    guideText.value = st.guide;
+    storeKey = st.store;
+    loadStrokes();
+    applyGround();
+    gatherShare = val("gather") / 100;
+    drawGuide();
+    drawPad();
+    try { localStorage.setItem(STAGE_KEY, key); } catch (e) {}
+  }
+  stageSel.addEventListener("change", () => {
+    applyStage(stageSel.value);
+    allocate(val("count"));
     scatter();
     t0 = performance.now();
   });
@@ -728,8 +865,12 @@
   }
   window.addEventListener("resize", layout);
 
+  let startStage = "wuji";
+  try { startStage = localStorage.getItem(STAGE_KEY) || "wuji"; } catch (e) {}
+  if (!STAGES[startStage]) startStage = "wuji";
+  stageSel.value = startStage;
   layout();
-  gatherShare = val("gather") / 100;
+  applyStage(startStage);
   allocate(val("count"));
   // Web fonts may land after first paint; re-read the guide once they do.
   if (document.fonts && document.fonts.ready) {
