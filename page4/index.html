@@ -178,6 +178,8 @@
     color: #2b2b2b;
   }
   button:active { background: #eee; }
+  .row.beat span { flex: none; }
+  .row.beat button { min-height: 32px; padding: 4px 12px; }
   .note {
     font-size: 11px;
     color: #8a8578;
@@ -257,7 +259,20 @@
         <button type="button" id="undo">Undo</button>
         <button type="button" id="clear">Clear</button>
         <button type="button" id="replay">Replay</button>
+        <button type="button" id="play">Play on beat</button>
       </div>
+      <div class="row beat">
+        <span class="name">Tempo</span>
+        <input type="number" id="bpm" min="20" max="300" step="0.1" value="90" aria-label="Beats per minute">
+        <span>BPM</span>
+        <button type="button" id="tap">Tap</button>
+      </div>
+      <div class="row beat">
+        <span class="name">Every</span>
+        <input type="number" id="beats-per-stroke" min="0.25" max="32" step="0.25" value="1" aria-label="Beats per stroke">
+        <span>beats, one stroke</span>
+      </div>
+      <div class="note" id="beat-status">Play on beat replays your strokes in the order you drew them, one stroke every so many beats. Press it on a beat of the song: stroke 1 lands on the next beat interval.</div>
       <div class="row">
         <span class="name">Guide</span>
         <input type="text" id="guide-text" value="無極" autocomplete="off" spellcheck="false">
@@ -377,6 +392,11 @@
         distinction yet. In 太極 movement gives rise to yang and stillness to
         yin (太極動而生陽，靜而生陰): moving motes turn light and resting motes
         turn dark on a mid grey.</p>
+        <p><strong>Play on beat</strong> scatters the motes and brings your
+        strokes back one at a time, in the order you drew them, one stroke
+        every so many beats at the tempo you set. Tap the <strong>Tap</strong>
+        button along with the song to measure its BPM. Press Play on a beat:
+        the first stroke lands one interval later. Replay stops it.</p>
         <p>White motes on a near-white ground are meant to be barely there.
         To see what they are doing, turn the mote colour dark for a moment.</p>
         <p>Your drawing is kept in this browser between visits.</p>
@@ -547,6 +567,7 @@
   let px, py, vx, vy;         // position, velocity
   let tx, ty, hd;             // lure position and heading (tx NaN = stray)
   let delay, seed, level;     // arrival stagger, flow offset, brightness this frame
+  let strokeOf;               // which stroke a gatherer belongs to
   let gatherShare = 0.75;
   let mask = new Uint8Array(SAMPLE * SAMPLE);
   let hasShape = false;
@@ -555,48 +576,79 @@
   const inside = (x, y) =>
     x >= 0 && x < 1 && y >= 0 && y < 1 && mask[((y * SAMPLE) | 0) * SAMPLE + ((x * SAMPLE) | 0)] === 1;
 
-  // Ink the current shape into the mask; returns the inked cell indices.
-  function buildMask() {
-    const c = document.createElement("canvas");
-    c.width = c.height = SAMPLE;
-    const ctx = c.getContext("2d");
-    let usingGuide = false;
-    if (strokes.length) {
-      inkStrokes(ctx, strokes, SAMPLE);
-    } else {
-      ctx.fillStyle = INK;
-      usingGuide = inkGuide(ctx, SAMPLE);
-    }
-    const data = ctx.getImageData(0, 0, SAMPLE, SAMPLE).data;
-    mask = new Uint8Array(SAMPLE * SAMPLE);
-    const pts = [];
-    for (let i = 0, n = SAMPLE * SAMPLE; i < n; i++) {
-      if (data[i * 4 + 3] > 96) { mask[i] = 1; pts.push(i); }
-    }
-    hasShape = pts.length > 0;
-    note.textContent = strokes.length
-      ? `${strokes.length} stroke${strokes.length === 1 ? "" : "s"}`
-      : usingGuide ? "Showing the guide text — draw over it to make it yours." : "Draw something.";
-    return pts;
+  // Ink cells for a list of strokes (or the guide text when there are no
+  // strokes), as indices into a SAMPLE x SAMPLE grid.
+  const sampler = document.createElement("canvas");
+  sampler.width = sampler.height = SAMPLE;
+  const samplerCtx = sampler.getContext("2d", { willReadFrequently: true });
+  function inkCells(list) {
+    samplerCtx.clearRect(0, 0, SAMPLE, SAMPLE);
+    if (list) inkStrokes(samplerCtx, list, SAMPLE);
+    else { samplerCtx.fillStyle = INK; inkGuide(samplerCtx, SAMPLE); }
+    const data = samplerCtx.getImageData(0, 0, SAMPLE, SAMPLE).data;
+    const cells = [];
+    for (let i = 0, n = SAMPLE * SAMPLE; i < n; i++) if (data[i * 4 + 3] > 96) cells.push(i);
+    return cells;
   }
 
-  // Drop every gatherer's lure at a random spot inside the shape. Mote
-  // positions and velocities are kept, so a new stroke makes the swarm
+  // The mask the lures crawl in: every stroke, or only the first `upto`
+  // while a beat playback is revealing them one by one.
+  let maskUpto = -1;
+  function buildMask(upto) {
+    const list = strokes.length ? strokes.slice(0, upto) : (upto > 0 ? null : []);
+    mask = new Uint8Array(SAMPLE * SAMPLE);
+    for (const k of inkCells(list)) mask[k] = 1;
+    maskUpto = upto;
+  }
+
+  // Share the gatherers out between the strokes in proportion to how much
+  // ink each one has, and drop each lure somewhere inside its own stroke.
+  // Mote positions and velocities are kept, so a new stroke makes the swarm
   // stream over to it.
   function retarget() {
-    const pts = buildMask();
-    const gatherers = pts.length ? Math.round(N * gatherShare) : 0;
+    const parts = strokes.length ? strokes.map((st) => inkCells([st])) : [inkCells(null)];
+    const total = parts.reduce((n, c) => n + c.length, 0);
+    hasShape = total > 0;
+    const gatherers = hasShape ? Math.round(N * gatherShare) : 0;
+    let j = 0, before = 0;
     for (let i = 0; i < N; i++) {
       if (i < gatherers) {
-        const k = pts[(Math.random() * pts.length) | 0];
+        // Walk the strokes' cumulative ink so each gets its fair share.
+        const at = ((i + 0.5) / gatherers) * total;
+        while (j < parts.length - 1 && at >= before + parts[j].length) before += parts[j++].length;
+        const cells = parts[j];
+        const k = cells[(Math.random() * cells.length) | 0];
         tx[i] = ((k % SAMPLE) + Math.random()) / SAMPLE;
         ty[i] = (((k / SAMPLE) | 0) + Math.random()) / SAMPLE;
         hd[i] = Math.random() * Math.PI * 2;
+        strokeOf[i] = j;
       } else {
         tx[i] = NaN;
         ty[i] = NaN;
       }
     }
+    buildMask(playing ? revealedCount(performance.now()) : Infinity);
+    note.textContent = strokes.length
+      ? `${strokes.length} stroke${strokes.length === 1 ? "" : "s"}`
+      : hasShape ? "Showing the guide text — draw over it to make it yours." : "Draw something.";
+  }
+
+  // --- Beat playback ------------------------------------------------------
+  // Replays the strokes in the order they were drawn, one every so many
+  // beats. Stroke 1 lands one interval after Play is pressed, so press Play
+  // on a beat. Its motes set off a moment early (LEAD) so they arrive on
+  // the beat rather than starting from it.
+  const LEAD = 0.18;          // seconds; about how long a pulled mote takes to land
+  let playing = false;
+  let playT0 = 0;
+  const strokeInterval = () =>
+    (60 / Math.max(1, val("bpm"))) * Math.max(0.25, val("beats-per-stroke"));
+  const strokeTotal = () => (strokes.length || 1);
+  // Seconds after Play at which stroke j lands.
+  const landsAt = (j) => (j + 1) * strokeInterval();
+  function revealedCount(now) {
+    const tp = (now - playT0) / 1000;
+    return Math.max(0, Math.min(strokeTotal(), Math.floor((tp + LEAD) / strokeInterval())));
   }
 
   function allocate(n) {
@@ -606,6 +658,7 @@
     vx = new Float32Array(N); vy = new Float32Array(N);
     tx = new Float32Array(N); ty = new Float32Array(N); hd = new Float32Array(N);
     delay = new Float32Array(N); seed = new Float32Array(N); level = new Uint8Array(N);
+    strokeOf = new Uint16Array(N);
     for (let i = 0; i < N; i++) {
       if (i < old.N) {
         px[i] = old.px[i]; py[i] = old.py[i];
@@ -677,33 +730,56 @@
     const damp = Math.pow(0.94, dt);
     const breath = val("breath");
     const bw = breath ? (2 * Math.PI) / breath : 0;
+    // During beat playback a stroke's motes gather when it lands, not on
+    // the cycle; strokes still to come leave their motes drifting.
+    const tp = (now - playT0) / 1000;
+    const rev = playing ? revealedCount(now) : Infinity;
+    if (rev !== maskUpto) buildMask(rev);
+    if (playing) updateBeatStatus(tp, rev);
 
     for (let i = 0; i < N; i++) {
       let x = px[i], y = py[i];
       const a = flowAngle(x, y, t, seed[i]);
       const ax = Math.cos(a), ay = Math.sin(a);
 
-      if (tx[i] === tx[i] && hasShape) {     // false for NaN (stray)
+      let gi = 0;
+      const gatherer = tx[i] === tx[i] && hasShape;   // false for NaN (stray)
+      if (gatherer) {
+        if (playing) {
+          const start = landsAt(strokeOf[i]) - LEAD - delay[i] * 0.06;
+          gi = strokeOf[i] < rev ? smooth(0, 0.08, tp - start) : 0;
+        } else {
+          // Stagger arrivals so the shape condenses rather than snaps.
+          gi = smooth(0, 1, (g - delay[i] * 0.45) / 0.55);
+        }
+      }
+      if (gi > 0) {
         // Breath: a wave of rest runs across the drawing, so parts of it
         // stop (and go still-coloured) while the rest keeps moving.
         const m = breath
           ? smooth(-0.25, 0.25, Math.sin(t * bw - (tx[i] * 3 + ty[i] * 2) * Math.PI + seed[i] * 0.4))
           : 1;
         if (m > 0) crawl(i, step * m);
-        // Stagger arrivals so the shape condenses rather than snaps.
-        const gi = smooth(0, 1, (g - delay[i] * 0.45) / 0.55);
-        const k = 0.006 * gi;
+        // A snappier pull on the beat so the stroke lands in time.
+        const k = (playing ? 0.03 : 0.006) * gi;
         const f = flowAcc * (1 - 0.9 * gi);
-        const d = damp - 0.06 * gi;
-        vx[i] = (vx[i] + (ax * f + (tx[i] - x) * k) * dt) * d;
-        vy[i] = (vy[i] + (ay * f + (ty[i] - y) * k) * dt) * d;
+        // The spring is integrated in steps of at most one 60 fps frame, so
+        // a slow device lands motes on the stroke instead of overshooting.
+        const steps = Math.ceil(dt), h = dt / steps;
+        const d = Math.pow(0.94 - 0.06 * gi, h);
+        for (let n = 0; n < steps; n++) {
+          vx[i] = (vx[i] + (ax * f + (tx[i] - x) * k) * h) * d;
+          vy[i] = (vy[i] + (ay * f + (ty[i] - y) * k) * h) * d;
+          x += vx[i] * h;
+          y += vy[i] * h;
+        }
       } else {
         vx[i] = (vx[i] + ax * flowAcc * dt) * damp;
         vy[i] = (vy[i] + ay * flowAcc * dt) * damp;
+        x += vx[i] * dt;
+        y += vy[i] * dt;
       }
 
-      x += vx[i] * dt;
-      y += vy[i] * dt;
       // Wrap loose motes around the edges so the ground never empties.
       if (x < -0.02) x += 1.04; else if (x > 1.02) x -= 1.04;
       if (y < -0.02) y += 1.04; else if (y > 1.02) y -= 1.04;
@@ -711,7 +787,7 @@
 
       const v = Math.hypot(vx[i], vy[i]);
       level[i] = Math.round(smooth(glow0, glow1, v) * (LEVELS - 1)) +
-        (tx[i] === tx[i] && hasShape ? 0 : LEVELS);
+        (gatherer && (gi > 0 || !playing) ? 0 : LEVELS);
     }
 
     draw();
@@ -794,9 +870,44 @@
   ground.addEventListener("input", applyGround);
   applyGround();
 
+  const beatStatus = document.getElementById("beat-status");
+  const beatHelp = beatStatus.textContent;
+
   document.getElementById("replay").addEventListener("click", () => {
+    playing = false;
+    beatStatus.textContent = beatHelp;
     scatter();
     t0 = performance.now();
+  });
+
+  document.getElementById("play").addEventListener("click", () => {
+    scatter();
+    playing = true;
+    playT0 = performance.now();
+    t0 = playT0;
+  });
+
+  function updateBeatStatus(tp, rev) {
+    const beat = Math.floor(tp * Math.max(1, val("bpm")) / 60) + 1;
+    const total = strokeTotal();
+    const landed = Math.min(total, Math.max(0, Math.floor(tp / strokeInterval())));
+    beatStatus.textContent = landed >= total
+      ? `All ${total} stroke${total === 1 ? "" : "s"} landed · beat ${beat} · Replay to stop`
+      : `Beat ${beat} · stroke ${landed} of ${total}`;
+  }
+
+  // Tap tempo: average the gaps between recent taps. A pause of more than
+  // two seconds starts a new count.
+  let taps = [];
+  document.getElementById("tap").addEventListener("click", () => {
+    const now = performance.now();
+    if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
+    taps.push(now);
+    if (taps.length > 8) taps.shift();
+    if (taps.length >= 2) {
+      const gap = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
+      document.getElementById("bpm").value = (60000 / gap).toFixed(1);
+    }
   });
 
   // --- Stages -----------------------------------------------------------
