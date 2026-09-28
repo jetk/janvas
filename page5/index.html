@@ -1,0 +1,1058 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>janvas — meadow 花火</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: #f5f4f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  body {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  .stage {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 44px 16px 12px;
+  }
+  /* The sky is the drawing surface. touch-action: none stops the page from
+     scrolling or zooming while a finger is planting a stem. */
+  #sky {
+    width: min(94vw, 1100px);
+    aspect-ratio: 16 / 10;
+    max-height: 66dvh;
+    background: #0b0e17;
+    border-radius: 3px;
+    display: block;
+    touch-action: none;
+    cursor: crosshair;
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 14px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #2b2b2b;
+    font-weight: 500;
+  }
+  h1 small {
+    display: block;
+    margin-top: 4px;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: #8a8578;
+  }
+  .controls {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 40px;
+    padding: 16px 24px 32px;
+    border-top: 1px solid #ddd9d0;
+    background: #f5f4f0;
+    flex-wrap: wrap;
+  }
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 240px;
+    max-width: 420px;
+    flex: 1 1 240px;
+  }
+  .group h2 {
+    margin: 0 0 2px;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #2b2b2b;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #555;
+  }
+  .row .name {
+    width: 62px;
+    flex: none;
+  }
+  .row input[type="range"] {
+    flex: 1;
+    min-width: 60px;
+    accent-color: #2b2b2b;
+  }
+  .row input[type="number"] {
+    width: 64px;
+    flex: none;
+    font-size: 16px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 4px;
+  }
+  .row input[type="checkbox"] { accent-color: #2b2b2b; }
+  .row label { display: flex; align-items: center; gap: 6px; }
+  .row .range-hint {
+    font-size: 10px;
+    color: #999;
+    width: 56px;
+    flex: none;
+  }
+  .buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 12px;
+    min-height: 38px;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    color: #2b2b2b;
+  }
+  button:active { background: #eee; }
+  .kinds button {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  .kinds button i {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    display: inline-block;
+    border: 1px solid rgba(0,0,0,0.25);
+  }
+  .kinds button[aria-pressed="true"] {
+    background: #2b2b2b;
+    border-color: #2b2b2b;
+    color: #f5f4f0;
+  }
+  .row.beat span { flex: none; }
+  .row.beat button { min-height: 32px; padding: 4px 12px; }
+  .note {
+    font-size: 11px;
+    color: #8a8578;
+    min-height: 14px;
+  }
+  details {
+    font-size: 12px;
+    line-height: 1.55;
+    color: #555;
+  }
+  details summary {
+    cursor: pointer;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #2b2b2b;
+    padding: 6px 0;
+  }
+  details p { margin: 8px 0; }
+  .pagenav {
+    position: fixed;
+    top: 12px;
+    left: 16px;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    z-index: 2;
+  }
+  .pagenav a {
+    color: #2b2b2b;
+    text-decoration: none;
+    border-bottom: 1px solid #2b2b2b;
+  }
+
+  @media (max-width: 720px) {
+    .stage { padding: 40px 0 12px; }
+    #sky { width: 100%; aspect-ratio: 4 / 5; max-height: 64dvh; border-radius: 0; }
+    .controls {
+      flex-direction: column;
+      gap: 22px;
+      padding: 16px 16px 40px;
+    }
+    .group { max-width: none; min-width: 0; width: 100%; }
+    .row .name { width: 56px; }
+    .row .range-hint { display: none; }
+  }
+</style>
+</head>
+<body>
+  <nav class="pagenav"><a href="../page4/">← Page 4</a></nav>
+
+  <div class="stage">
+    <canvas id="sky"></canvas>
+    <h1>janvas<small>meadow 花火</small></h1>
+  </div>
+
+  <div class="controls">
+    <div class="group">
+      <h2>Plant</h2>
+      <div class="buttons kinds" id="kinds">
+        <button type="button" data-kind="dandelion"><i style="background:#ffd23f"></i>Dandelion</button>
+        <button type="button" data-kind="daisy"><i style="background:#ffffff"></i>Daisy</button>
+        <button type="button" data-kind="grass"><i style="background:#4fd05f"></i>Grass</button>
+      </div>
+      <div class="row">
+        <span class="name">Height</span>
+        <input type="range" id="height" min="10" max="95" step="1" value="60">
+        <input type="number" id="height-n" min="10" max="95" step="1" value="60">
+        <span class="range-hint">% of sky</span>
+      </div>
+      <div class="buttons">
+        <button type="button" id="undo">Undo</button>
+        <button type="button" id="clear">Clear</button>
+      </div>
+      <div class="note" id="note"></div>
+    </div>
+
+    <div class="group">
+      <h2>Play</h2>
+      <div class="buttons">
+        <button type="button" id="replay">Replay</button>
+        <button type="button" id="play">Play on beat</button>
+        <button type="button" id="stop">Stop</button>
+      </div>
+      <div class="row beat">
+        <span class="name">Tempo</span>
+        <input type="number" id="bpm" min="20" max="300" step="0.1" value="120" aria-label="Beats per minute">
+        <span>BPM</span>
+        <button type="button" id="tap">Tap</button>
+      </div>
+      <div class="row beat">
+        <span class="name">Every</span>
+        <input type="number" id="beats-per-stroke" min="0.25" max="32" step="0.25" value="1" aria-label="Beats per stroke">
+        <span>beats, one burst</span>
+      </div>
+      <div class="row beat">
+        <span class="name">Rise</span>
+        <input type="number" id="rise" min="0.25" max="8" step="0.25" value="1" aria-label="Beats of rise">
+        <span>beats of rise before each burst</span>
+      </div>
+      <div class="row">
+        <label><input type="checkbox" id="loop" checked> Loop</label>
+        <label><input type="checkbox" id="click"> Click track</label>
+      </div>
+      <div class="row">
+        <span class="name">Volume</span>
+        <input type="range" id="vol" min="0" max="100" step="1" value="70">
+        <input type="number" id="vol-n" min="0" max="100" step="1" value="70">
+        <span class="range-hint">%</span>
+      </div>
+      <div class="note" id="beat-status"></div>
+
+      <details>
+        <summary>How it works</summary>
+        <p>Pick a <strong>dandelion</strong>, <strong>daisy</strong> or
+        <strong>grass</strong> and draw a stem upwards in the sky. A stem
+        always grows out of the ground and stops at the <strong>height</strong>
+        line; when you lift your finger it bursts. A tap grows a straight
+        stem to the height line for you.</p>
+        <p>Each plant is its own firework. The dandelion flares yellow, then
+        blows out into seeds that stall, turn their parachutes up and drift
+        away. The daisy opens as a ring of petals around a gold centre with a
+        chime pitched by where it stands, low on the left and high on the
+        right. Grass throws up a willow of green blades that droop and
+        crackle.</p>
+        <p>Every stroke is recorded in order, with its timing.
+        <strong>Replay</strong> plays the sequence back as you drew it
+        (pauses longer than 4 seconds are shortened).
+        <strong>Play on beat</strong> puts one burst on every so many beats
+        at the tempo you set: press it on a beat of the song and burst 1
+        lands one interval later. <strong>Rise</strong> is how many beats a
+        stem spends growing and whistling first, so the bang lands on the
+        beat rather than starting from it.</p>
+        <p>Tap the <strong>Tap</strong> button along with the song to measure
+        its BPM. <strong>Click track</strong> plays a metronome so you can
+        check the match. <strong>Loop</strong> keeps the sequence going until
+        Stop.</p>
+        <p>On an iPhone, turn off silent mode to hear the sounds. Your
+        sequence is kept in this browser between visits.</p>
+      </details>
+    </div>
+  </div>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const val = (id) => +$(id).value;
+  const STORE = "janvas.page5.strokes";
+  const KIND_KEY = "janvas.page5.kind";
+
+  const KINDS = {
+    dandelion: { stem: "#8fbf6a", head: "#ffd23f" },
+    daisy:     { stem: "#6fb35a", head: "#ffffff" },
+    grass:     { stem: "#4fd05f", head: "#c8ffb0" },
+  };
+
+  // --- Recording ----------------------------------------------------------
+  // A stroke is { k: kind, p: [[x, y], ...] from the ground up in unit
+  // coordinates, t: seconds of its burst since the sequence began }.
+  let strokes = [];
+  let kind = "dandelion";
+  let recAnchor = null;       // audio time that t = 0 corresponds to
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE) || "[]");
+    if (Array.isArray(saved)) strokes = saved.filter((s) => s && KINDS[s.k] && Array.isArray(s.p));
+    const k = localStorage.getItem(KIND_KEY);
+    if (KINDS[k]) kind = k;
+  } catch (e) { /* private window or blocked storage: start blank */ }
+
+  function save() {
+    try { localStorage.setItem(STORE, JSON.stringify(strokes)); } catch (e) {}
+  }
+
+  // --- Sky --------------------------------------------------------------
+  const sky = $("sky");
+  const ctx = sky.getContext("2d");
+  let W = 1, H = 1, S = 1, dpr = 1;
+  const backdrop = document.createElement("canvas");
+
+  function layout() {
+    const r = sky.getBoundingClientRect();
+    dpr = window.devicePixelRatio || 1;
+    W = sky.width = Math.max(1, Math.round(r.width * dpr));
+    H = sky.height = Math.max(1, Math.round(r.height * dpr));
+    S = Math.min(W, H);
+    backdrop.width = W;
+    backdrop.height = H;
+    const b = backdrop.getContext("2d");
+    const g = b.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, "#060811");
+    g.addColorStop(0.75, "#10152a");
+    g.addColorStop(1, "#18203a");
+    b.fillStyle = g;
+    b.fillRect(0, 0, W, H);
+    // Stars from a fixed seed so they stay put on resize.
+    let s = 7;
+    const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
+    for (let i = 0; i < 110; i++) {
+      b.globalAlpha = 0.12 + rnd() * 0.5;
+      b.fillStyle = "#dfe6ff";
+      b.beginPath();
+      b.arc(rnd() * W, rnd() * H * 0.72, (0.5 + rnd() * 0.8) * dpr, 0, 7);
+      b.fill();
+    }
+    b.globalAlpha = 1;
+    const gr = b.createLinearGradient(0, H * 0.94, 0, H);
+    gr.addColorStop(0, "rgba(20,40,24,0)");
+    gr.addColorStop(1, "rgba(28,56,30,0.9)");
+    b.fillStyle = gr;
+    b.fillRect(0, H * 0.94, W, H * 0.06);
+  }
+  window.addEventListener("resize", layout);
+
+  // --- Shaping a stroke into a stem ---------------------------------------
+  // Length of a unit-coordinate path in units of the sky's shorter side.
+  function pathLen(p) {
+    let L = 0;
+    for (let i = 1; i < p.length; i++) {
+      L += Math.hypot((p[i][0] - p[i - 1][0]) * W, (p[i][1] - p[i - 1][1]) * H);
+    }
+    return L / S;
+  }
+  const TAP = 0.03;
+
+  function shape(raw, heightPct) {
+    const topY = 1 - heightPct / 100;
+    if (pathLen(raw) < TAP) {
+      // A tap grows a gently leaning stem from the ground to the height line.
+      const x = raw[0][0];
+      const lean = ((Math.random() - 0.5) * 0.05 * S) / W;
+      const bend = ((Math.random() - 0.5) * 0.05 * S) / W;
+      const pts = [];
+      for (let i = 0; i <= 24; i++) {
+        const u = i / 24;
+        pts.push([x + lean * u + bend * Math.sin(Math.PI * u), 1 - u * (1 - topY)]);
+      }
+      return pts;
+    }
+    const p = raw.slice();
+    if (p[0][1] < p[p.length - 1][1]) p.reverse();       // grow from the lower end
+    if (p[0][1] < 0.995) p.unshift([p[0][0], 1]);        // root it in the ground
+    const out = [p[0]];
+    for (let i = 1; i < p.length; i++) {
+      const a = p[i - 1], b = p[i];
+      if (b[1] < topY) {
+        // Cut at the first crossing of the height line; the burst goes there.
+        if (a[1] >= topY) {
+          const f = (a[1] - topY) / (a[1] - b[1]);
+          out.push([a[0] + (b[0] - a[0]) * f, topY]);
+        }
+        return out;
+      }
+      out.push(b);
+    }
+    return out;
+  }
+
+  // --- Sound --------------------------------------------------------------
+  // Everything is synthesised, and every sound is scheduled on the audio
+  // clock, so bursts land on the beat even when a frame is late.
+  let ac = null, master = null, bus = null, noiseBuf = null;
+
+  function audio() {
+    if (!ac) {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      const comp = ac.createDynamicsCompressor();
+      comp.threshold.value = -14;
+      comp.ratio.value = 4;
+      master = ac.createGain();
+      master.gain.value = val("vol") / 100;
+      master.connect(comp);
+      comp.connect(ac.destination);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      bus = newBus();
+    }
+    if (ac.state === "suspended") ac.resume();
+    return ac;
+  }
+  // Playback sounds go through a bus that Stop can cut in one go.
+  function newBus() {
+    const g = ac.createGain();
+    g.connect(master);
+    return g;
+  }
+  // What the ear hears now, so the pictures line up with the sound.
+  const latency = () => (ac ? ac.outputLatency || ac.baseLatency || 0 : 0);
+
+  function tone(dest, t, f0, f1, dur, gain, type = "sine") {
+    const o = ac.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(dest);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  }
+
+  function noise(dest, t, dur, gain, { type = "lowpass", f0 = 2000, f1 = f0, q = 0.7, attack = 0.003 } = {}) {
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuf;
+    const f = ac.createBiquadFilter();
+    f.type = type;
+    f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ac.createGain();
+    const a = Math.min(attack, dur * 0.8);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f).connect(g).connect(dest);
+    src.start(t, Math.random() * Math.max(0, 1.9 - dur));
+    src.stop(t + dur + 0.05);
+  }
+
+  // Pentatonic across the sky: a daisy on the left rings lower than one on
+  // the right, so a row of them plays a tune.
+  const PENTA = [0, 2, 4, 7, 9];
+  function pitchAt(x) {
+    const step = Math.max(0, Math.min(9, Math.floor(x * 10)));
+    return 261.63 * Math.pow(2, (PENTA[step % 5] + 12 * Math.floor(step / 5)) / 12);
+  }
+
+  function riseSound(dest, k, t, dur) {
+    if (dur < 0.06) return;
+    if (k === "grass") tone(dest, t, 700, 2600, dur, 0.05);                 // whistle
+    else if (k === "daisy") tone(dest, t, 220, 660, dur, 0.04, "triangle");
+    else noise(dest, t, dur, 0.06, { type: "bandpass", f0: 600, f1: 2400, q: 1.2, attack: dur * 0.85 });
+  }
+
+  function burstSound(dest, k, t, x, crackles) {
+    const f = pitchAt(x);
+    if (k === "dandelion") {
+      tone(dest, t, 95, 45, 0.18, 0.5);                                        // soft thump
+      noise(dest, t, 0.45, 0.35, { type: "lowpass", f0: 3200, f1: 300 });     // the puff
+      noise(dest, t + 0.05, 1.8, 0.05, { type: "highpass", f0: 6000, q: 0.5, attack: 0.25 });
+      for (let i = 0; i < 5; i++) {                                           // seeds glinting
+        const ft = f * 4 * (1 + Math.random() * 0.03);
+        tone(dest, t + 0.15 + Math.random() * 1.1, ft, ft, 0.25, 0.02);
+      }
+    } else if (k === "daisy") {
+      tone(dest, t, 150, 48, 0.28, 0.7);                                      // boom
+      noise(dest, t, 0.07, 0.35, { type: "bandpass", f0: 2200, f1: 1200, q: 0.9 });
+      [1, 1.5, 2].forEach((m, i) => tone(dest, t, f * m, f * m, 1.4 - i * 0.3, 0.12 / (i + 1)));
+    } else {
+      noise(dest, t, 0.04, 0.6, { type: "highpass", f0: 1800 });              // snap
+      tone(dest, t, 220, 70, 0.12, 0.45);
+      for (const c of crackles) {
+        noise(dest, c, 0.012, 0.05 + Math.random() * 0.12, { type: "highpass", f0: 3000, attack: 0.001 });
+      }
+    }
+  }
+
+  function click(dest, t, accent) {
+    const f = accent ? 1760 : 1320;
+    tone(dest, t, f, f, 0.03, accent ? 0.22 : 0.12);
+  }
+
+  // --- Launches and particles ---------------------------------------------
+  // A launch is one stem on its way up and then its burst. Times are on the
+  // audio clock.
+  let launches = [];
+  let parts = [];
+
+  function launch(st, riseStart, burst, dest, fromPlay) {
+    const top = st.p[st.p.length - 1];
+    const e = {
+      k: st.k, p: st.p, x: top[0], y: top[1],
+      riseStart, burst, fired: false, fromPlay,
+      crackles: [], blades: [], shown: 0,
+    };
+    if (st.k === "grass") {
+      for (let i = 0; i < 18; i++) e.crackles.push(burst + 0.7 + Math.random() * 0.9);
+      e.crackles.sort((a, b) => a - b);
+    }
+    riseSound(dest, st.k, riseStart, burst - riseStart);
+    burstSound(dest, st.k, burst, e.x, e.crackles);
+    launches.push(e);
+    return e;
+  }
+
+  const R = Math.random;
+  function spawn(type, x, y, vx, vy, life, extra) {
+    const q = { type, x, y, vx, vy, life, age: 0 };
+    if (extra) Object.assign(q, extra);
+    parts.push(q);
+    return q;
+  }
+
+  function fire(e) {
+    e.fired = true;
+    if (e.fromPlay && play) play.fired++;
+    const x = e.x * W, y = e.y * H;
+    if (e.k === "dandelion") {
+      spawn("flash", x, y, 0, 0, 0.35, { col: "#ffd23f" });
+      for (let i = 0; i < 22; i++) {
+        const a = R() * Math.PI * 2, v = S * 0.5 * (0.6 + 0.4 * R());
+        spawn("ember", x, y, Math.cos(a) * v, Math.sin(a) * v, 0.3 + R() * 0.2,
+          { col: R() < 0.5 ? "#ffd23f" : "#ffb703" });
+      }
+      const n = 80;
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * Math.PI * 2 + (R() - 0.5) * 0.08;
+        const v = S * 0.76 * (0.7 + 0.3 * R());
+        spawn("seed", x, y, Math.cos(a) * v, Math.sin(a) * v, 5.5 + R() * 2,
+          { rot: a, vr: (R() - 0.5) * 0.4, ph: R() * 6.28, sz: 0.8 + R() * 0.35 });
+      }
+    } else if (e.k === "daisy") {
+      spawn("flash", x, y, 0, 0, 0.3, { col: "#ffffff" });
+      const petals = (n, speed, sz) => {
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2 + (R() - 0.5) * 0.05;
+          const v = speed * (0.9 + 0.2 * R());
+          spawn("petal", x, y, Math.cos(a) * v, Math.sin(a) * v, 2.2 + R() * 0.4, {
+            rot: a, vr: (R() - 0.5) * 0.4, sz: sz * (0.9 + 0.25 * R()),
+            col: ["#ffffff", "#fff4f6", "#f1eeff"][(R() * 3) | 0],
+          });
+        }
+      };
+      petals(21, S * 0.48, 1);
+      petals(13, S * 0.3, 0.75);
+      for (let i = 0; i < 45; i++) {
+        const a = R() * Math.PI * 2, v = S * 0.2 * R();
+        spawn("core", x, y, Math.cos(a) * v, Math.sin(a) * v, 1.6 + R() * 0.6,
+          { col: ["#ffd23f", "#ffbf1f", "#fff09a"][(R() * 3) | 0] });
+      }
+    } else {
+      spawn("flash", x, y, 0, 0, 0.25, { col: "#7dff8a" });
+      for (let i = 0; i < 26; i++) {
+        const a = -Math.PI / 2 + (R() - 0.5) * 2.3;
+        const v = S * (0.4 + 0.26 * R());
+        e.blades.push(spawn("blade", x, y, Math.cos(a) * v, Math.sin(a) * v, 2.2 + R() * 0.6, {
+          tr: [x, y], col: ["#4fd05f", "#9be15d", "#3fb950", "#c8ffb0"][(R() * 4) | 0],
+        }));
+      }
+    }
+  }
+
+  const expd = (k, dt) => Math.exp(-k * dt);
+  const PHYS = {
+    seed(q, dt) {
+      // Out fast, stall, then turn parachute-up and drift on the air.
+      const d = expd(q.age < 0.5 ? 5 : 0.9, dt);
+      q.vx = q.vx * d + Math.sin(q.age * 1.1 + q.ph) * S * 0.012 * dt;
+      q.vy = q.vy * d + S * 0.018 * dt;
+      if (q.age > 0.8) {
+        let dA = -Math.PI / 2 - q.rot;
+        dA = Math.atan2(Math.sin(dA), Math.cos(dA));
+        q.rot += dA * (1 - expd(0.7, dt)) + Math.sin(q.age * 2 + q.ph) * 0.3 * dt;
+      } else q.rot += q.vr * dt;
+      q.x += q.vx * dt;
+      q.y += q.vy * dt;
+    },
+    ember(q, dt) { const d = expd(6, dt); q.vx *= d; q.vy *= d; q.x += q.vx * dt; q.y += q.vy * dt; },
+    petal(q, dt) {
+      const d = expd(3.2, dt);
+      q.vx *= d;
+      q.vy = q.vy * d + S * 0.06 * dt;
+      q.x += q.vx * dt;
+      q.y += q.vy * dt;
+      q.rot += q.vr * dt;
+    },
+    core(q, dt) {
+      const d = expd(4, dt);
+      q.vx *= d;
+      q.vy = q.vy * d + S * 0.03 * dt;
+      q.x += q.vx * dt;
+      q.y += q.vy * dt;
+    },
+    blade(q, dt) {
+      // A willow: arcs up, then droops, trailing its own path.
+      const d = expd(1.1, dt);
+      q.vx *= d;
+      q.vy = q.vy * d + S * 0.5 * dt;
+      q.x += q.vx * dt;
+      q.y += q.vy * dt;
+      q.tr.push(q.x, q.y);
+      if (q.tr.length > 28) q.tr.splice(0, 2);
+    },
+    flash() {},
+    spark() {},
+  };
+
+  const fade = (q, from) => {
+    const u = q.age / q.life;
+    return u < from ? 1 : 1 - (u - from) / (1 - from);
+  };
+  const DRAW = {
+    seed(q) {
+      ctx.globalAlpha = fade(q, 0.55) * 0.95;
+      ctx.strokeStyle = "#fff4d6";
+      ctx.lineWidth = Math.max(1, S * 0.0016);
+      const c = Math.cos(q.rot), s = Math.sin(q.rot);
+      const L = S * 0.02 * q.sz, f = S * 0.011 * q.sz;
+      const tx = q.x + c * L, ty = q.y + s * L;
+      ctx.beginPath();
+      ctx.moveTo(q.x, q.y);
+      ctx.lineTo(tx, ty);
+      for (let j = -3; j <= 3; j++) {
+        const an = q.rot + j * 0.36;
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(tx + Math.cos(an) * f, ty + Math.sin(an) * f);
+      }
+      ctx.stroke();
+      ctx.fillStyle = "#c9a86a";
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, Math.max(1, S * 0.0022), 0, 7);
+      ctx.fill();
+    },
+    ember(q) { dot(q, fade(q, 0.3), S * 0.003); },
+    core(q) { dot(q, fade(q, 0.4) * (0.6 + 0.4 * R()), S * 0.003); },
+    petal(q) {
+      ctx.globalAlpha = fade(q, 0.5) * 0.9;
+      ctx.fillStyle = q.col;
+      ctx.beginPath();
+      ctx.ellipse(q.x, q.y, S * 0.016 * q.sz, S * 0.0045 * q.sz, q.rot, 0, 7);
+      ctx.fill();
+    },
+    blade(q) {
+      const tr = q.tr, n = tr.length / 2;
+      if (n < 2) return;
+      const a0 = fade(q, 0.55);
+      ctx.strokeStyle = q.col;
+      ctx.lineCap = "round";
+      for (let j = 1; j < n; j++) {
+        const u = j / (n - 1);
+        ctx.globalAlpha = a0 * u * 0.9;
+        ctx.lineWidth = Math.max(1, S * 0.004 * u);
+        ctx.beginPath();
+        ctx.moveTo(tr[2 * j - 2], tr[2 * j - 1]);
+        ctx.lineTo(tr[2 * j], tr[2 * j + 1]);
+        ctx.stroke();
+      }
+    },
+    flash(q) {
+      const u = q.age / q.life, r = S * (0.03 + 0.12 * u);
+      const g = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, r);
+      g.addColorStop(0, q.col);
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.globalAlpha = (1 - u) * 0.6;
+      ctx.fillStyle = g;
+      ctx.fillRect(q.x - r, q.y - r, 2 * r, 2 * r);
+    },
+    spark(q) {
+      q.col = "#ffffff";
+      dot(q, 1 - q.age / q.life, S * 0.004);
+    },
+  };
+  function dot(q, alpha, r) {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = q.col;
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, Math.max(1, r), 0, 7);
+    ctx.fill();
+  }
+
+  // --- Stems --------------------------------------------------------------
+  function stemPath(p) {
+    const xs = [], ys = [], cum = [0];
+    for (let i = 0; i < p.length; i++) {
+      xs.push(p[i][0] * W);
+      ys.push(p[i][1] * H);
+      if (i) cum.push(cum[i - 1] + Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]));
+    }
+    return { xs, ys, cum, total: cum[cum.length - 1] };
+  }
+
+  // Draw a stem up to fraction u of its length; returns the tip.
+  function drawStem(k, p, u, alpha) {
+    const { xs, ys, cum, total } = stemPath(p);
+    const end = total * u;
+    ctx.strokeStyle = KINDS[k].stem;
+    ctx.lineCap = "round";
+    ctx.globalAlpha = alpha;
+    let tx = xs[0], ty = ys[0];
+    for (let i = 1; i < xs.length; i++) {
+      if (cum[i - 1] >= end) break;
+      const f = cum[i] > end ? (end - cum[i - 1]) / (cum[i] - cum[i - 1]) : 1;
+      tx = xs[i - 1] + (xs[i] - xs[i - 1]) * f;
+      ty = ys[i - 1] + (ys[i] - ys[i - 1]) * f;
+      // Grass is a blade: wide at the root, tapering to the tip.
+      const along = total ? cum[i - 1] / total : 0;
+      ctx.lineWidth = k === "grass"
+        ? Math.max(1, S * (0.012 - 0.01 * along))
+        : Math.max(1, S * 0.0035);
+      ctx.beginPath();
+      ctx.moveTo(xs[i - 1], ys[i - 1]);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+    }
+    return [tx, ty];
+  }
+
+  function drawHead(k, x, y, alpha) {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = KINDS[k].head;
+    ctx.beginPath();
+    ctx.arc(x, y, S * (k === "grass" ? 0.005 : 0.009), 0, 7);
+    ctx.fill();
+    if (k === "daisy") {
+      ctx.fillStyle = "#ffd23f";
+      ctx.beginPath();
+      ctx.arc(x, y, S * 0.004, 0, 7);
+      ctx.fill();
+    }
+  }
+
+  // --- Playback -----------------------------------------------------------
+  // play is null when idle. In "beat" mode burst n lands n + 1 intervals
+  // after the press; in "drawn" mode the recorded timing is kept.
+  let play = null;
+  const beatSecs = () => 60 / Math.max(1, val("bpm"));
+  const interval = () => beatSecs() * Math.max(0.25, val("beats-per-stroke"));
+  const riseSecs = () => beatSecs() * Math.max(0.25, val("rise"));
+
+  function startPlay(mode) {
+    if (!strokes.length) {
+      beatStatus.textContent = "Draw something first.";
+      return;
+    }
+    audio();
+    stopPlay();
+    const T0 = ac.currentTime + 0.02;
+    const times = [0];
+    for (let i = 1; i < strokes.length; i++) {
+      times.push(times[i - 1] + Math.max(0, Math.min(4, strokes[i].t - strokes[i - 1].t)));
+    }
+    const last = times[times.length - 1];
+    play = {
+      mode, T0, n: 0, fired: 0, bus,
+      lead: Math.max(0.3, riseSecs()),
+      times,
+      period: last + (strokes.length > 1 ? Math.max(0.5, last / (strokes.length - 1)) : 1),
+      nextBurst: T0 + interval(),
+      nextClick: T0 + beatSecs(),
+      clickN: 1,
+      lastBurst: 0,
+    };
+    schedule();
+  }
+
+  function stopPlay() {
+    if (!play) return;
+    // Cut every sound still queued for playback and drop stems not yet up.
+    play.bus.disconnect();
+    bus = newBus();
+    launches = launches.filter((e) => !e.fromPlay || e.fired);
+    play = null;
+  }
+
+  function schedule() {
+    if (!play || !ac) return;
+    const L = strokes.length;
+    if (!L) { stopPlay(); return; }
+    const now = ac.currentTime, horizon = now + 0.3;
+    const loop = $("loop").checked;
+    while (loop || play.n < L) {
+      const i = play.n % L;
+      let burst;
+      if (play.mode === "beat") burst = play.nextBurst;
+      else burst = play.T0 + play.lead + Math.floor(play.n / L) * play.period + play.times[i];
+      const riseStart = Math.max(play.T0, now, burst - riseSecs());
+      if (riseStart > horizon) break;
+      launch(strokes[i], riseStart, burst, play.bus, true);
+      play.lastBurst = burst;
+      play.n++;
+      if (play.mode === "beat") play.nextBurst += interval();
+    }
+    if (play.mode === "beat" && $("click").checked) {
+      while (play.nextClick <= horizon) {
+        click(play.bus, play.nextClick, (play.clickN - 1) % 4 === 0);
+        play.clickN++;
+        play.nextClick += beatSecs();
+      }
+    } else if (play.mode === "beat") {
+      // Keep the click in step even while it is switched off.
+      while (play.nextClick <= horizon) { play.clickN++; play.nextClick += beatSecs(); }
+    }
+  }
+  setInterval(schedule, 50);
+
+  const beatStatus = $("beat-status");
+  function updateStatus(vt) {
+    if (!play) return;
+    const L = strokes.length;
+    if (!$("loop").checked && play.n >= L && play.fired >= play.n && vt > play.lastBurst + 0.5) {
+      beatStatus.textContent = `All ${L} burst${L === 1 ? "" : "s"} played.`;
+      play = null;
+      return;
+    }
+    const k = play.fired ? ((play.fired - 1) % L) + 1 : 0;
+    if (play.mode === "beat") {
+      const beat = Math.max(0, Math.floor((vt - play.T0) / beatSecs())) + 1;
+      beatStatus.textContent = `Beat ${beat} · burst ${k} of ${L}`;
+    } else {
+      beatStatus.textContent = `Replaying · burst ${k} of ${L}`;
+    }
+  }
+
+  // --- Drawing ------------------------------------------------------------
+  let current = null;
+
+  function skyPoint(e) {
+    const r = sky.getBoundingClientRect();
+    return [
+      Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+      Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)),
+    ];
+  }
+
+  sky.addEventListener("pointerdown", (e) => {
+    if (e.button !== undefined && e.button > 0) return;
+    e.preventDefault();
+    audio();
+    sky.setPointerCapture(e.pointerId);
+    current = [skyPoint(e)];
+  });
+  sky.addEventListener("pointermove", (e) => {
+    if (!current) return;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    for (const ev of (evs.length ? evs : [e])) {
+      const p = skyPoint(ev);
+      const last = current[current.length - 1];
+      if (Math.hypot(p[0] - last[0], p[1] - last[1]) > 0.002) current.push(p);
+    }
+  });
+  function endStroke() {
+    if (!current) return;
+    audio();
+    const raw = current;
+    current = null;
+    const tap = pathLen(raw) < TAP;
+    const p = shape(raw, val("height")).map(([x, y]) => [+x.toFixed(4), +y.toFixed(4)]);
+    const now = ac.currentTime;
+    // A drawn stem is already up, so it bursts on release; a tap grows first.
+    const burst = now + (tap ? 0.15 : 0);
+    if (recAnchor === null) {
+      recAnchor = burst - (strokes.length ? strokes[strokes.length - 1].t + 1 : 0);
+    }
+    const st = { k: kind, p, t: +(burst - recAnchor).toFixed(3) };
+    strokes.push(st);
+    save();
+    launch(st, now, burst, master, false);
+    updateNote();
+  }
+  sky.addEventListener("pointerup", endStroke);
+  sky.addEventListener("pointercancel", endStroke);
+
+  const note = $("note");
+  function updateNote() {
+    note.textContent = strokes.length
+      ? `${strokes.length} stroke${strokes.length === 1 ? "" : "s"} recorded`
+      : "Draw a stem up from the ground, or tap to plant one.";
+  }
+
+  // --- Frame --------------------------------------------------------------
+  let last = performance.now();
+  function frame(nowMs) {
+    const dt = Math.min(0.05, (nowMs - last) / 1000);
+    last = nowMs;
+    const vt = ac ? ac.currentTime - latency() : 0;
+    updateStatus(vt);
+
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
+    ctx.drawImage(backdrop, 0, 0);
+
+    // The recorded sequence as faint stems, and the height line, while idle.
+    if (!play) {
+      for (const st of strokes) {
+        const [x, y] = drawStem(st.k, st.p, 1, 0.2);
+        drawHead(st.k, x, y, 0.35);
+      }
+      const hy = (1 - val("height") / 100) * H;
+      ctx.globalAlpha = 0.25;
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = dpr;
+      ctx.setLineDash([6 * dpr, 6 * dpr]);
+      ctx.beginPath();
+      ctx.moveTo(0, hy);
+      ctx.lineTo(W, hy);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Stems rising, bursting and fading.
+    for (let i = launches.length - 1; i >= 0; i--) {
+      const e = launches[i];
+      if (vt < e.riseStart) continue;
+      if (!e.fired && vt >= e.burst) fire(e);
+      if (e.fired) {
+        const a = 1 - (vt - e.burst) / 3;
+        if (a <= 0 && e.shown >= e.crackles.length) { launches.splice(i, 1); continue; }
+        if (a > 0) drawStem(e.k, e.p, 1, a * 0.8);
+        // Grass crackles: a white pop on a live blade at each crackle time.
+        while (e.shown < e.crackles.length && vt >= e.crackles[e.shown]) {
+          const live = e.blades.filter((b) => b.age < b.life);
+          if (live.length) {
+            const b = live[(R() * live.length) | 0];
+            spawn("spark", b.x, b.y, 0, 0, 0.07, {});
+          }
+          e.shown++;
+        }
+      } else {
+        const span = e.burst - e.riseStart;
+        const u = span > 0 ? (vt - e.riseStart) / span : 1;
+        const [x, y] = drawStem(e.k, e.p, u, 0.9);
+        drawHead(e.k, x, y, 1);
+      }
+    }
+
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const q = parts[i];
+      q.age += dt;
+      if (q.age >= q.life) {
+        parts[i] = parts[parts.length - 1];
+        parts.pop();
+        continue;
+      }
+      PHYS[q.type](q, dt);
+      DRAW[q.type](q);
+    }
+    ctx.globalCompositeOperation = "source-over";
+
+    if (current) {
+      const [x, y] = drawStem(kind, current, 1, 0.9);
+      drawHead(kind, x, y, 1);
+    }
+    ctx.globalAlpha = 1;
+    requestAnimationFrame(frame);
+  }
+
+  // --- Wiring -------------------------------------------------------------
+  function pair(rangeId, numberId, onChange) {
+    const range = $(rangeId);
+    const number = $(numberId);
+    range.addEventListener("input", () => {
+      number.value = range.value;
+      onChange && onChange();
+    });
+    number.addEventListener("input", () => {
+      let v = +number.value;
+      if (Number.isNaN(v)) return;
+      v = Math.min(+number.max, Math.max(+number.min, v));
+      range.value = v;
+      onChange && onChange();
+    });
+  }
+  pair("height", "height-n");
+  pair("vol", "vol-n", () => { if (master) master.gain.value = val("vol") / 100; });
+
+  const kindButtons = [...document.querySelectorAll("#kinds button")];
+  function setKind(k) {
+    kind = k;
+    kindButtons.forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === k)));
+    try { localStorage.setItem(KIND_KEY, k); } catch (e) {}
+  }
+  kindButtons.forEach((b) => b.addEventListener("click", () => setKind(b.dataset.kind)));
+
+  $("undo").addEventListener("click", () => {
+    strokes.pop();
+    if (!strokes.length) recAnchor = null;
+    save();
+    updateNote();
+  });
+  $("clear").addEventListener("click", () => {
+    stopPlay();
+    strokes = [];
+    recAnchor = null;
+    save();
+    updateNote();
+    beatStatus.textContent = "";
+  });
+  $("replay").addEventListener("click", () => startPlay("drawn"));
+  $("play").addEventListener("click", () => startPlay("beat"));
+  $("stop").addEventListener("click", () => {
+    stopPlay();
+    beatStatus.textContent = "Stopped.";
+  });
+
+  // Tap tempo: average the gaps between recent taps. A pause of more than
+  // two seconds starts a new count.
+  let taps = [];
+  $("tap").addEventListener("click", () => {
+    const now = performance.now();
+    if (taps.length && now - taps[taps.length - 1] > 2000) taps = [];
+    taps.push(now);
+    if (taps.length > 8) taps.shift();
+    if (taps.length >= 2) {
+      const gap = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
+      $("bpm").value = (60000 / gap).toFixed(1);
+    }
+  });
+
+  setKind(kind);
+  layout();
+  updateNote();
+  requestAnimationFrame(frame);
+</script>
+</body>
+</html>
