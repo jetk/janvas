@@ -429,8 +429,8 @@
         time, not places. In 陰陽 they divide and stand side by side
         (分陰分陽，兩儀立焉): a moving half and a resting half, always equal,
         turn around the centre, each carrying a seed of the other.</p>
-        <p><strong>Play on beat</strong> scatters the motes and brings your
-        strokes back one at a time, in the order you drew them, one stroke
+        <p><strong>Play on beat</strong> loosens each stroke's motes into a
+        faint haze around it and condenses your strokes back one at a time, in the order you drew them, one stroke
         every so many beats at the tempo you set. Tap the <strong>Tap</strong>
         button along with the song to measure its BPM. Press Play on a beat:
         the first stroke lands one interval later. Replay stops it.</p>
@@ -716,6 +716,20 @@
     }
   }
 
+  // For beat playback: each gatherer starts in a loose haze around its own
+  // lure, so a stroke condenses where it stands on its beat instead of
+  // motes streaking in from across the canvas. Strays scatter as usual.
+  const HAZE = 0.12;
+  function scatterNear() {
+    scatter();
+    for (let i = 0; i < N; i++) {
+      if (tx[i] !== tx[i]) continue;
+      const a = Math.random() * Math.PI * 2, r = HAZE * Math.sqrt(Math.random());
+      px[i] = Math.min(1, Math.max(0, tx[i] + r * Math.cos(a)));
+      py[i] = Math.min(1, Math.max(0, ty[i] + r * Math.sin(a)));
+    }
+  }
+
   // A slowly turning flow field made of a few interfering waves: cheap,
   // smooth and never still, which is all a swarm needs.
   function flowAngle(x, y, t, s) {
@@ -824,9 +838,14 @@
         y += vy[i] * dt;
       }
 
-      // Wrap loose motes around the edges so the ground never empties.
-      if (x < -0.02) x += 1.04; else if (x > 1.02) x -= 1.04;
-      if (y < -0.02) y += 1.04; else if (y > 1.02) y -= 1.04;
+      // Wrap loose motes around the edges so the ground never empties. A
+      // mote being pulled onto its stroke never wraps: if it overshot past
+      // an edge it would reappear across the canvas and be yanked back,
+      // over and over, as a streak racing across the whole picture.
+      if (gi === 0) {
+        if (x < -0.02) x += 1.04; else if (x > 1.02) x -= 1.04;
+        if (y < -0.02) y += 1.04; else if (y > 1.02) y -= 1.04;
+      }
       px[i] = x; py[i] = y;
 
       const v = Math.hypot(vx[i], vy[i]);
@@ -891,6 +910,7 @@
     const moving = document.getElementById("col-mote").value;
     const still = document.getElementById("col-still").value;
     const TRAIL = 2.5;  // frames of motion per streak
+    const MAX_TRAIL = 0.03 * W;  // longest streak, so a fast mote stays a dash
     outCtx.globalAlpha = 1;
     outCtx.fillStyle = document.getElementById("col-ground").value;
     outCtx.fillRect(0, 0, W, H);
@@ -911,6 +931,8 @@
         if (level[i] !== b) continue;
         const x = px[i] * W, y = py[i] * H;
         let dx = vx[i] * W * TRAIL, dy = vy[i] * H * TRAIL;
+        const len = Math.hypot(dx, dy);
+        if (len > MAX_TRAIL) { dx *= MAX_TRAIL / len; dy *= MAX_TRAIL / len; }
         // Some browsers skip zero-length strokes; keep still motes a dot.
         if (Math.abs(dx) + Math.abs(dy) < 0.5) dx = 0.5;
         outCtx.moveTo(x - dx, y - dy);
@@ -974,7 +996,7 @@
   });
 
   document.getElementById("play").addEventListener("click", () => {
-    scatter();
+    scatterNear();
     playing = true;
     playT0 = performance.now();
     t0 = playT0;
