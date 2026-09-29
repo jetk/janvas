@@ -155,6 +155,8 @@
     background: #fff;
     color: #2b2b2b;
   }
+  .row select { flex: 1; width: auto; min-width: 0; }
+  .row[hidden] { display: none; }
   .row .range-hint {
     font-size: 10px;
     color: #999;
@@ -337,6 +339,26 @@
         <span class="range-hint">s · 0 = none</span>
       </div>
       <div class="row">
+        <span class="name">Shape</span>
+        <select id="breath-shape" aria-label="Breath shape">
+          <option value="wave">Wave — bands of rest</option>
+          <option value="whole">Whole — all at once</option>
+          <option value="spiral">Spiral — two halves</option>
+        </select>
+      </div>
+      <div class="row spiral-only">
+        <span class="name">Twist</span>
+        <input type="range" id="twist" min="0" max="20" step="0.5" value="6">
+        <input type="number" id="twist-n" min="0" max="20" step="0.5" value="6">
+        <span class="range-hint">bend</span>
+      </div>
+      <div class="row spiral-only">
+        <span class="name">Seeds</span>
+        <input type="range" id="seeds" min="0" max="12" step="0.5" value="7">
+        <input type="number" id="seeds-n" min="0" max="12" step="0.5" value="7">
+        <span class="range-hint">% of side</span>
+      </div>
+      <div class="row">
         <span class="name">Cycle</span>
         <input type="range" id="cycle" min="0" max="120" step="1" value="30">
         <input type="number" id="cycle-n" min="0" max="120" step="1" value="30">
@@ -384,9 +406,15 @@
         motes drift on a slow current that <strong>Swarm</strong> speeds up.
         <strong>Cycle</strong> runs swarm → gather → hold → release; set it
         to 0 to let the shape form once and stay.</p>
-        <p><strong>Breath</strong> makes the crawling motes stop and start.
-        Waves of rest pass across the drawing, one full breath every so many
-        seconds.</p>
+        <p><strong>Breath</strong> makes the crawling motes stop and start,
+        one full breath every so many seconds. Its <strong>Shape</strong>
+        decides where the rest falls. A <em>wave</em> sends bands of rest
+        across the drawing. <em>Whole</em> stops and starts the entire
+        drawing at once. A <em>spiral</em> splits the drawing into a resting
+        half and a moving half that curl into each other and turn around the
+        centre; <strong>Twist</strong> bends the line between them, and
+        <strong>Seeds</strong> sets the size of the small patch of each half
+        that sits inside the other.</p>
         <p>Speed sets a mote's colour. A fast mote takes the
         <strong>Moving</strong> colour, a still one the <strong>Still</strong>
         colour, and the <strong>Pivot</strong> is the speed in between where
@@ -395,8 +423,12 @@
         <p><strong>Stages</strong> load a colour and motion setting, and each
         stage keeps its own drawing. 無極 is light on white with no
         distinction yet. In 太極 movement gives rise to yang and stillness to
-        yin (太極動而生陽，靜而生陰): moving motes turn light and resting motes
-        turn dark on a mid grey.</p>
+        yin (太極動而生陽，靜而生陰): the whole drawing moves and glows light,
+        then rests and turns dark, one motion and one stillness, each the root
+        of the other (一動一靜，互為其根). Yin and yang are still moments in
+        time, not places. In 陰陽 they divide and stand side by side
+        (分陰分陽，兩儀立焉): a moving half and a resting half, always equal,
+        turn around the centre, each carrying a seed of the other.</p>
         <p><strong>Play on beat</strong> scatters the motes and brings your
         strokes back one at a time, in the order you drew them, one stroke
         every so many beats at the tempo you set. Tap the <strong>Tap</strong>
@@ -709,12 +741,16 @@
   // Walk one lure along inside the ink. It wanders a little each step and
   // turns away from the edge of the stroke, so it runs up and down the
   // stroke like a firefly trapped in a glass tube.
-  function crawl(i, step) {
+  // With keepMoving it also turns away from anywhere it would come to rest,
+  // so a moving half (or seed) keeps its motes instead of leaking them.
+  function crawl(i, step, keepMoving) {
     hd[i] += (Math.random() - 0.5) * 0.5;
     for (let tries = 0; tries < 4; tries++) {
       const nx = tx[i] + Math.cos(hd[i]) * step;
       const ny = ty[i] + Math.sin(hd[i]) * step;
-      if (inside(nx, ny)) { tx[i] = nx; ty[i] = ny; return; }
+      if (inside(nx, ny) && (!keepMoving || breathAt(nx, ny, seed[i]) >= 0.5)) {
+        tx[i] = nx; ty[i] = ny; return;
+      }
       hd[i] += Math.PI * (0.5 + Math.random());
     }
   }
@@ -734,7 +770,8 @@
     const glow0 = 0.0011, glow1 = 0.0045;
     const damp = Math.pow(0.94, dt);
     const breath = val("breath");
-    const bw = breath ? (2 * Math.PI) / breath : 0;
+    setBreath(breath ? (2 * Math.PI) / breath * t : 0);
+    const spiral = br.shape === "spiral";
     // During beat playback a stroke's motes gather when it lands, not on
     // the cycle; strokes still to come leave their motes drifting.
     const tp = (now - playT0) / 1000;
@@ -759,12 +796,14 @@
         }
       }
       if (gi > 0) {
-        // Breath: a wave of rest runs across the drawing, so parts of it
-        // stop (and go still-coloured) while the rest keeps moving.
-        const m = breath
-          ? smooth(-0.25, 0.25, Math.sin(t * bw - (tx[i] * 3 + ty[i] * 2) * Math.PI + seed[i] * 0.4))
-          : 1;
-        if (m > 0) crawl(i, step * m);
+        // Breath: parts of the drawing stop (and go still-coloured) while
+        // the rest keeps moving. The spiral is either/or: a mote crawls at
+        // full pace or not at all, so no slow band collects motes.
+        const m = breath ? breathAt(tx[i], ty[i], seed[i]) : 1;
+        // A seed is small, so its motes keep turning back at its rim; they
+        // crawl faster there to glow as brightly as the half around them.
+        if (breath && spiral) { if (m >= 0.5) crawl(i, step * (1 + inSeed(tx[i], ty[i])), true); }
+        else if (m > 0) crawl(i, step * m);
         // A snappier pull on the beat so the stroke lands in time.
         const k = (playing ? 0.03 : 0.006) * gi;
         const f = flowAcc * (1 - 0.9 * gi);
@@ -797,6 +836,46 @@
 
     draw();
     requestAnimationFrame(frame);
+  }
+
+  // The breath settings for the current frame, set once per frame.
+  const br = { ph: 0, shape: "wave", twist: 0, seedR: 0, s1x: 0, s1y: 0, s2x: 0, s2y: 0 };
+  const SEED_AT = 0.2;  // distance of each spiral seed from the centre
+  function setBreath(ph) {
+    br.ph = ph;
+    br.shape = breathShape.value;
+    br.twist = val("twist");
+    br.seedR = val("seeds") / 100;
+    // Each half's seed sits in the middle of the other half's bulge. The
+    // yang half is centred where the phase peaks (sin = 1).
+    const a = ph + br.twist * SEED_AT - Math.PI / 2;
+    br.s1x = 0.5 + SEED_AT * Math.cos(a); br.s1y = 0.5 + SEED_AT * Math.sin(a);
+    br.s2x = 1 - br.s1x; br.s2y = 1 - br.s1y;
+  }
+  // Breath: how much a gathered mote crawls right now, from 1 (moving) down
+  // to 0 and below (resting). The shape decides where the rest falls:
+  //   wave   — bands of rest run across the drawing;
+  //   whole  — the entire drawing moves, then rests (太極);
+  //   spiral — a moving half and a resting half, split by a line that
+  //            bends with the distance from the centre and turns with time.
+  //            The threshold is at sin = 0, so the halves are always equal,
+  //            and a small disc in each half takes the other's state (陰陽).
+  function breathAt(x, y, jitter) {
+    let a;
+    if (br.shape === "whole") a = br.ph + jitter * 0.4;
+    else if (br.shape === "spiral") {
+      const dx = x - 0.5, dy = y - 0.5;
+      a = br.ph - Math.atan2(dy, dx) + br.twist * Math.hypot(dx, dy);
+    } else a = br.ph - (x * 3 + y * 2) * Math.PI + jitter * 0.4;
+    let m = smooth(-0.25, 0.25, Math.sin(a));
+    if (br.shape === "spiral") m += (1 - 2 * m) * inSeed(x, y);
+    return m;
+  }
+  // 1 inside either spiral seed, 0 outside, with a soft rim.
+  function inSeed(x, y) {
+    if (br.seedR <= 0) return 0;
+    const d = Math.min(Math.hypot(x - br.s1x, y - br.s1y), Math.hypot(x - br.s2x, y - br.s2y));
+    return smooth(br.seedR, br.seedR * 0.75, d);
   }
 
   // Each mote is drawn as a short streak back along its velocity. Its speed
@@ -868,6 +947,15 @@
   pair("crawl", "crawl-n");
   pair("breath", "breath-n");
   pair("pivot", "pivot-n");
+  pair("twist", "twist-n");
+  pair("seeds", "seeds-n");
+
+  // Twist and Seeds only mean something for the spiral.
+  const breathShape = document.getElementById("breath-shape");
+  const showShapeRows = () => {
+    document.querySelectorAll(".spiral-only").forEach((r) => { r.hidden = breathShape.value !== "spiral"; });
+  };
+  breathShape.addEventListener("change", showShapeRows);
   pair("strays", "strays-n");
 
   const ground = document.getElementById("col-ground");
@@ -926,17 +1014,28 @@
       guide: "無極",
       set: {
         count: 7000, gather: 75, size: 1.4, alpha: 70, swarm: 40, crawl: 6,
-        breath: 0, cycle: 30, pivot: 0, strays: 100,
+        breath: 0, "breath-shape": "wave", cycle: 30, pivot: 0, strays: 100,
         "col-mote": "#ffffff", "col-still": "#f5f4f0", "col-ground": "#f5f4f0",
       },
     },
     taiji: {
-      label: "太極 Taiji — motion light, stillness dark",
+      label: "太極 Taiji — the whole moves, then rests",
       store: "janvas.page4.strokes.taiji",
       guide: "太極",
       set: {
         count: 9000, gather: 80, size: 1.6, alpha: 75, swarm: 20, crawl: 7,
-        breath: 6, cycle: 30, pivot: 35, strays: 55,
+        breath: 6, "breath-shape": "whole", cycle: 30, pivot: 35, strays: 55,
+        "col-mote": "#ffffff", "col-still": "#141414", "col-ground": "#8e8c87",
+      },
+    },
+    yinyang: {
+      label: "陰陽 Yin-yang — two halves, turning",
+      store: "janvas.page4.strokes.yinyang",
+      guide: "陰陽",
+      set: {
+        count: 10000, gather: 85, size: 1.6, alpha: 75, swarm: 20, crawl: 7,
+        breath: 12, "breath-shape": "spiral", twist: 6, seeds: 7,
+        cycle: 0, pivot: 35, strays: 45,
         "col-mote": "#ffffff", "col-still": "#141414", "col-ground": "#8e8c87",
       },
     },
@@ -960,6 +1059,7 @@
     storeKey = st.store;
     loadStrokes();
     applyGround();
+    showShapeRows();
     gatherShare = val("gather") / 100;
     drawGuide();
     drawPad();
