@@ -157,6 +157,13 @@
   }
   .row select { flex: 1; width: auto; min-width: 0; }
   .row[hidden] { display: none; }
+  .row label.auto {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+  }
   .row .range-hint {
     font-size: 10px;
     color: #999;
@@ -298,9 +305,9 @@
       <h2>Motes</h2>
       <div class="row">
         <span class="name">Count</span>
-        <input type="range" id="count" min="500" max="20000" step="100" value="7000">
-        <input type="number" id="count-n" min="500" max="20000" step="100" value="7000">
-        <span class="range-hint">500–20k</span>
+        <input type="range" id="count" min="500" max="60000" step="100" value="7000">
+        <input type="number" id="count-n" min="500" max="60000" step="100" value="7000">
+        <label class="auto"><input type="checkbox" id="count-auto"> auto</label>
       </div>
       <div class="row">
         <span class="name">Gather</span>
@@ -367,6 +374,13 @@
 
       <h2>Colour</h2>
       <div class="row">
+        <span class="name">Look</span>
+        <select id="look" aria-label="Look">
+          <option value="streak">Streaks — speed sets colour</option>
+          <option value="star">Stars — every colour</option>
+        </select>
+      </div>
+      <div class="row streak-only">
         <span class="name">Moving</span>
         <input type="color" id="col-mote" value="#ffffff">
         <span class="name">Still</span>
@@ -376,11 +390,23 @@
         <span class="name">Ground</span>
         <input type="color" id="col-ground" value="#f5f4f0">
       </div>
-      <div class="row">
+      <div class="row streak-only">
         <span class="name">Pivot</span>
         <input type="range" id="pivot" min="0" max="90" step="1" value="0">
         <input type="number" id="pivot-n" min="0" max="90" step="1" value="0">
         <span class="range-hint">% · 0 = glow</span>
+      </div>
+      <div class="row star-only">
+        <span class="name">Sparkle</span>
+        <input type="range" id="sparkle" min="0" max="100" step="1" value="60">
+        <input type="number" id="sparkle-n" min="0" max="100" step="1" value="60">
+        <span class="range-hint">twinkle</span>
+      </div>
+      <div class="row star-only">
+        <span class="name">Drift</span>
+        <input type="range" id="drift" min="0" max="100" step="1" value="30">
+        <input type="number" id="drift-n" min="0" max="100" step="1" value="30">
+        <span class="range-hint">hue flow</span>
       </div>
       <div class="row">
         <span class="name">Strays</span>
@@ -434,6 +460,16 @@
         every so many beats at the tempo you set. Tap the <strong>Tap</strong>
         button along with the song to measure its BPM. Press Play on a beat:
         the first stroke lands one interval later. Replay stops it.</p>
+        <p>In 萬物, the ten thousand things, the two have given rise to
+        everything: no mote settles on light or dark any more. The
+        <strong>Look</strong> switches to <em>stars</em>: every mote is a
+        plain dot with its own colour, always visible whether it moves or
+        rests, and each one's hue slowly flows around the whole colour wheel
+        (<strong>Drift</strong>). <strong>Sparkle</strong> sets how much they
+        twinkle, and how often one flares into a four-pointed glint. With
+        <strong>auto</strong> ticked, the count keeps growing while the frame
+        rate holds and backs off once your device starts to struggle, so
+        there are as many colours as it can carry.</p>
         <p>White motes on a near-white ground are meant to be barely there.
         To see what they are doing, turn the mote colour dark for a moment.</p>
         <p>Your drawing is kept in this browser between visits.</p>
@@ -642,23 +678,19 @@
   // ink each one has, and drop each lure somewhere inside its own stroke.
   // Mote positions and velocities are kept, so a new stroke makes the swarm
   // stream over to it.
+  let inkParts = [], inkTotal = 0;  // ink cells per stroke, kept for resize
   function retarget() {
-    const parts = strokes.length ? strokes.map((st) => inkCells([st])) : [inkCells(null)];
-    const total = parts.reduce((n, c) => n + c.length, 0);
-    hasShape = total > 0;
-    const gatherers = hasShape ? Math.round(N * gatherShare) : 0;
-    let j = 0, before = 0;
+    inkParts = strokes.length ? strokes.map((st) => inkCells([st])) : [inkCells(null)];
+    inkTotal = inkParts.reduce((n, c) => n + c.length, 0);
+    hasShape = inkTotal > 0;
     for (let i = 0; i < N; i++) {
-      if (i < gatherers) {
-        // Walk the strokes' cumulative ink so each gets its fair share.
-        const at = ((i + 0.5) / gatherers) * total;
-        while (j < parts.length - 1 && at >= before + parts[j].length) before += parts[j++].length;
-        const cells = parts[j];
-        const k = cells[(Math.random() * cells.length) | 0];
-        tx[i] = ((k % SAMPLE) + Math.random()) / SAMPLE;
-        ty[i] = (((k / SAMPLE) | 0) + Math.random()) / SAMPLE;
-        hd[i] = Math.random() * Math.PI * 2;
-        strokeOf[i] = j;
+      // Low-discrepancy steps pick the gatherers evenly through the index
+      // range, so trimming the count keeps the same mix of gatherers and
+      // strays, and spread the gatherers evenly along the strokes'
+      // cumulative ink so each stroke gets its fair share.
+      const u = (i * 0.7548776662 + 0.31) % 1;
+      if (hasShape && u < gatherShare) {
+        placeLure(i, (u / gatherShare) * inkTotal);
       } else {
         tx[i] = NaN;
         ty[i] = NaN;
@@ -689,24 +721,55 @@
   }
 
   function allocate(n) {
-    const old = { N, px, py, vx, vy };
+    resize(n);
+    retarget();
+  }
+
+  // Change the number of motes, keeping every existing mote as it is (its
+  // place, motion and lure). New gatherers appear on a lure of their own,
+  // dealt the same way retarget does, so a growing count adds motes in
+  // place instead of re-dealing the whole swarm.
+  function resize(n) {
+    const old = { N, px, py, vx, vy, tx, ty, hd, delay, seed, strokeOf };
+    const keep = Math.min(old.N, n);
     N = n;
     px = new Float32Array(N); py = new Float32Array(N);
     vx = new Float32Array(N); vy = new Float32Array(N);
     tx = new Float32Array(N); ty = new Float32Array(N); hd = new Float32Array(N);
     delay = new Float32Array(N); seed = new Float32Array(N); level = new Uint8Array(N);
     strokeOf = new Uint16Array(N);
-    for (let i = 0; i < N; i++) {
-      if (i < old.N) {
-        px[i] = old.px[i]; py[i] = old.py[i];
-        vx[i] = old.vx[i]; vy[i] = old.vy[i];
+    if (keep) {
+      px.set(old.px.subarray(0, keep)); py.set(old.py.subarray(0, keep));
+      vx.set(old.vx.subarray(0, keep)); vy.set(old.vy.subarray(0, keep));
+      tx.set(old.tx.subarray(0, keep)); ty.set(old.ty.subarray(0, keep));
+      hd.set(old.hd.subarray(0, keep)); delay.set(old.delay.subarray(0, keep));
+      seed.set(old.seed.subarray(0, keep)); strokeOf.set(old.strokeOf.subarray(0, keep));
+    }
+    for (let i = keep; i < N; i++) {
+      delay[i] = Math.random();
+      seed[i] = Math.random() * Math.PI * 2;
+      tx[i] = ty[i] = NaN;
+      const u = (i * 0.7548776662 + 0.31) % 1;
+      if (hasShape && inkTotal && u < gatherShare) {
+        placeLure(i, (u / gatherShare) * inkTotal);
+        px[i] = tx[i]; py[i] = ty[i];
       } else {
         px[i] = Math.random(); py[i] = Math.random();
       }
-      delay[i] = Math.random();
-      seed[i] = Math.random() * Math.PI * 2;
     }
-    retarget();
+    starsDirty = true;
+  }
+
+  // Drop lure i at ink position `at` (0..inkTotal) along the strokes.
+  function placeLure(i, at) {
+    let j = 0, before = 0;
+    while (j < inkParts.length - 1 && at >= before + inkParts[j].length) before += inkParts[j++].length;
+    const cells = inkParts[j];
+    const k = cells[(Math.random() * cells.length) | 0];
+    tx[i] = ((k % SAMPLE) + Math.random()) / SAMPLE;
+    ty[i] = (((k / SAMPLE) | 0) + Math.random()) / SAMPLE;
+    hd[i] = Math.random() * Math.PI * 2;
+    strokeOf[i] = j;
   }
 
   function scatter() {
@@ -771,8 +834,10 @@
 
   let t0 = performance.now();
   let last = t0;
+  const pageT0 = t0;  // twinkle and hue drift run on, through replays
 
   function frame(now) {
+    autoCount(now - last);
     const dt = Math.min(3, (now - last) / 16.667);  // in 60 fps frames
     last = now;
     const t = (now - t0) / 1000;
@@ -902,6 +967,7 @@
   // below it as the still colour, and right at the pivot it is invisible.
   // With the pivot at 0 a still mote is simply not there.
   function draw() {
+    if (lookEl.value === "star") { drawStars(); return; }
     const W = out.width, H = out.height;
     const dpr = window.devicePixelRatio || 1;
     const alpha = val("alpha") / 100;
@@ -942,6 +1008,222 @@
     }
   }
 
+  // --- Stars (萬物) --------------------------------------------------------
+  // Every mote a plain dot of its own colour, visible whether it moves or
+  // rests. Thousands of individually coloured, twinkling dots are drawn on
+  // the GPU: positions go up each frame, and each mote's colour, twinkle
+  // and occasional flare are worked out in the shaders. The result is then
+  // copied onto the output over its ground. Without WebGL a plainer 2D
+  // version draws the same dots without the twinkle.
+  const glc = document.createElement("canvas");
+  let gl = null, glProg = null, glPos = null, glStar = null, glU = {};
+  let posData = new Float32Array(0), starsDirty = true, maxPoint = 64;
+  const STAR_VS = `
+    attribute vec3 aPos;    // x, y (unit), opacity
+    attribute vec4 aStar;   // hue, tint seed, twinkle rate, phase
+    uniform float uTime, uSize, uSparkle, uDrift;
+    varying vec3 vCol;
+    varying float vA, vFlare, vCore;
+    vec3 hsl(float h, float s, float l) {
+      vec3 k = mod(vec3(0.0, 8.0, 4.0) + h * 12.0, 12.0);
+      return l - s * min(l, 1.0 - l) * clamp(min(k - 3.0, 9.0 - k), -1.0, 1.0);
+    }
+    void main() {
+      float tw = 0.5 + 0.5 * sin(uTime * aStar.z + aStar.w);
+      float tw2 = 0.5 + 0.5 * sin(uTime * aStar.z * 0.377 + aStar.w * 2.3);
+      // A flare needs both slow waves to peak together, so only a few
+      // motes at a time catch the light.
+      float flare = uSparkle * pow(tw * tw2, 40.0);
+      // Each mote drifts round the wheel at its own pace. Lightness stays
+      // in the middle band, so no mote ever settles on white or black.
+      float h = fract(aStar.x + uTime * uDrift * (0.6 + 0.8 * fract(aStar.y * 7.31)));
+      float s = 0.7 + 0.3 * fract(aStar.y * 3.17);
+      float l = 0.5 + 0.15 * fract(aStar.y * 5.71) + 0.12 * flare;
+      vCol = hsl(h, s, l);
+      float grow = 1.0 + 4.0 * flare;
+      gl_PointSize = uSize * grow;
+      vCore = 1.0 / grow;
+      vFlare = flare;
+      vA = aPos.z * mix(1.0, 0.25 + 0.75 * tw, uSparkle);
+      gl_Position = vec4(aPos.x * 2.0 - 1.0, 1.0 - aPos.y * 2.0, 0.0, 1.0);
+    }`;
+  const STAR_FS = `
+    precision mediump float;
+    varying vec3 vCol;
+    varying float vA, vFlare, vCore;
+    void main() {
+      vec2 p = gl_PointCoord * 2.0 - 1.0;
+      float r = length(p);
+      // A round dot, and during a flare four thin rays.
+      float disc = 1.0 - smoothstep(vCore * 0.5, vCore, r);
+      vec2 q = abs(p);
+      float rays = vFlare * (exp(-q.y * 22.0) * (1.0 - q.x) + exp(-q.x * 22.0) * (1.0 - q.y));
+      float a = clamp(disc + rays, 0.0, 1.0) * vA;
+      if (a < 0.004) discard;
+      gl_FragColor = vec4(vCol * a, a);
+    }`;
+
+  function initGL() {
+    try {
+      gl = glc.getContext("webgl", { premultipliedAlpha: true, antialias: false, preserveDrawingBuffer: true });
+    } catch (e) { gl = null; }
+    if (!gl) return;
+    const sh = (type, src) => {
+      const o = gl.createShader(type);
+      gl.shaderSource(o, src);
+      gl.compileShader(o);
+      if (!gl.getShaderParameter(o, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(o));
+      return o;
+    };
+    try {
+      glProg = gl.createProgram();
+      gl.attachShader(glProg, sh(gl.VERTEX_SHADER, STAR_VS));
+      gl.attachShader(glProg, sh(gl.FRAGMENT_SHADER, STAR_FS));
+      gl.linkProgram(glProg);
+      if (!gl.getProgramParameter(glProg, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(glProg));
+    } catch (e) {
+      console.warn("Stars fall back to 2D:", e);
+      gl = null;
+      return;
+    }
+    gl.useProgram(glProg);
+    for (const u of ["uTime", "uSize", "uSparkle", "uDrift"]) glU[u] = gl.getUniformLocation(glProg, u);
+    glPos = gl.createBuffer();
+    glStar = gl.createBuffer();
+    const aPos = gl.getAttribLocation(glProg, "aPos");
+    const aStar = gl.getAttribLocation(glProg, "aStar");
+    gl.bindBuffer(gl.ARRAY_BUFFER, glPos);
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, glStar);
+    gl.enableVertexAttribArray(aStar);
+    gl.vertexAttribPointer(aStar, 4, gl.FLOAT, false, 0, 0);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    maxPoint = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1] || 64;
+  }
+
+  // Fixed per-mote traits, from the mote's index so a mote keeps its own
+  // colour when the count changes. Hues step round the wheel by the R2
+  // sequence's second constant, the gatherer pick (retarget) by its first,
+  // so both are evenly spread and independent of each other.
+  const hash = (i, k) => {
+    const x = Math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  const starHue = (i) => (i * 0.5698402910) % 1;
+  function uploadStars() {
+    const a = new Float32Array(N * 4);
+    for (let i = 0; i < N; i++) {
+      a[i * 4] = starHue(i);
+      a[i * 4 + 1] = hash(i, 1);
+      a[i * 4 + 2] = 0.8 + 2.6 * hash(i, 2);
+      a[i * 4 + 3] = hash(i, 3) * Math.PI * 2;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, glStar);
+    gl.bufferData(gl.ARRAY_BUFFER, a, gl.STATIC_DRAW);
+    posData = new Float32Array(N * 3);
+    starsDirty = false;
+  }
+
+  function drawStars() {
+    const W = out.width, H = out.height;
+    const dpr = window.devicePixelRatio || 1;
+    const alpha = val("alpha") / 100;
+    const strays = val("strays") / 100;
+    outCtx.globalAlpha = 1;
+    outCtx.fillStyle = document.getElementById("col-ground").value;
+    outCtx.fillRect(0, 0, W, H);
+    if (!gl) { drawStars2D(W, H, dpr, alpha, strays); return; }
+    if (glc.width !== W || glc.height !== H) { glc.width = W; glc.height = H; }
+    if (starsDirty || posData.length !== N * 3) uploadStars();
+    for (let i = 0; i < N; i++) {
+      posData[i * 3] = px[i];
+      posData[i * 3 + 1] = py[i];
+      posData[i * 3 + 2] = alpha * (level[i] < LEVELS ? 1 : strays);
+    }
+    gl.viewport(0, 0, W, H);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindBuffer(gl.ARRAY_BUFFER, glPos);
+    gl.bufferData(gl.ARRAY_BUFFER, posData, gl.DYNAMIC_DRAW);
+    gl.uniform1f(glU.uTime, (performance.now() - pageT0) / 1000);
+    // Leave room in the sprite for a flare's rays, within the GPU's limit.
+    gl.uniform1f(glU.uSize, Math.min(maxPoint / 5, val("size") * dpr * 1.6));
+    gl.uniform1f(glU.uSparkle, val("sparkle") / 100);
+    gl.uniform1f(glU.uDrift, val("drift") / 100 * 0.05);
+    gl.drawArrays(gl.POINTS, 0, N);
+    outCtx.drawImage(glc, 0, 0);
+  }
+
+  // Without WebGL: the same coloured dots, batched into hue steps, with the
+  // hue still drifting but no twinkle.
+  function drawStars2D(W, H, dpr, alpha, strays) {
+    const STEPS = 36;
+    const t = (performance.now() - pageT0) / 1000;
+    const shift = t * val("drift") / 100 * 0.05;
+    const d = val("size") * dpr * 1.2;
+    // Sort the motes into their steps in one pass, then draw step by step.
+    const B = 2 * STEPS;
+    if (bucketOf.length !== N) { bucketOf = new Uint8Array(N); bucketList = new Uint32Array(N); }
+    const start = new Uint32Array(B + 1);
+    for (let i = 0; i < N; i++) {
+      const b = (level[i] >= LEVELS ? STEPS : 0) + (Math.floor(((starHue(i) + shift) % 1) * STEPS) % STEPS);
+      bucketOf[i] = b;
+      start[b + 1]++;
+    }
+    for (let b = 0; b < B; b++) start[b + 1] += start[b];
+    const fill = start.slice(0, B);
+    for (let i = 0; i < N; i++) bucketList[fill[bucketOf[i]]++] = i;
+    for (let b = 0; b < B; b++) {
+      if (start[b] === start[b + 1]) continue;
+      outCtx.globalAlpha = alpha * (b < STEPS ? 1 : strays);
+      outCtx.fillStyle = `hsl(${((b % STEPS) / STEPS) * 360}, 85%, 58%)`;
+      outCtx.beginPath();
+      for (let k = start[b]; k < start[b + 1]; k++) {
+        const i = bucketList[k];
+        outCtx.rect(px[i] * W - d / 2, py[i] * H - d / 2, d, d);
+      }
+      outCtx.fill();
+    }
+  }
+  let bucketOf = new Uint8Array(0), bucketList = new Uint32Array(0);
+
+  // --- Auto count -------------------------------------------------------
+  // With auto on, the count grows while frames stay quick and steps back
+  // once they slow, then holds there (stepping back further if the device
+  // later slows, say as it warms up), so there are as many motes as the
+  // device can carry.
+  const autoEl = document.getElementById("count-auto");
+  let autoWin = 0, autoFrames = 0, autoMs = 0, autoSettled = false, autoWait = 2000;
+  function autoCount(ms) {
+    if (!autoEl.checked) return;
+    // A hidden tab or a long pause says nothing about drawing speed, but
+    // a slow frame does: a struggling device must still step down.
+    if (document.hidden || ms > 2000) { autoWin = autoFrames = autoMs = 0; return; }
+    autoWin += ms; autoFrames++; autoMs += ms;
+    if (autoWait > 0) { autoWait -= ms; autoWin = autoFrames = autoMs = 0; return; }
+    if (autoWin < 1000) return;
+    const avg = autoMs / autoFrames;
+    autoWin = autoFrames = autoMs = 0;
+    const max = +document.getElementById("count").max;
+    let n = N;
+    if (avg > 22) {
+      // The slower the frames, the bigger the step back (at most half).
+      const f = Math.max(0.5, Math.min(0.85, 17 / avg));
+      n = Math.max(2000, Math.round(N * f / 100) * 100);
+      autoSettled = true;
+    }
+    else if (avg < 18 && !autoSettled) n = Math.min(max, Math.round(N * 1.2 / 100) * 100);
+    if (n === N) return;
+    resize(n);
+    document.getElementById("count").value = n;
+    document.getElementById("count-n").value = n;
+    autoWait = 500;  // let the new count show its pace before judging it
+  }
+  function restartAuto() { autoSettled = false; autoWait = 2000; autoWin = autoFrames = autoMs = 0; }
+  autoEl.addEventListener("change", restartAuto);
+
   // --- Wiring -----------------------------------------------------------
   function pair(rangeId, numberId, onChange) {
     const range = document.getElementById(rangeId);
@@ -960,7 +1242,8 @@
     });
   }
 
-  pair("count", "count-n", () => allocate(val("count")));
+  // Setting the count by hand takes over from auto.
+  pair("count", "count-n", () => { autoEl.checked = false; allocate(val("count")); });
   pair("gather", "gather-n", () => { gatherShare = val("gather") / 100; retarget(); });
   pair("size", "size-n");
   pair("alpha", "alpha-n");
@@ -970,6 +1253,17 @@
   pair("breath", "breath-n");
   pair("pivot", "pivot-n");
   pair("twist", "twist-n");
+  pair("sparkle", "sparkle-n");
+  pair("drift", "drift-n");
+
+  // Streaks and stars each have their own colour controls.
+  const lookEl = document.getElementById("look");
+  const showLookRows = () => {
+    const star = lookEl.value === "star";
+    document.querySelectorAll(".streak-only").forEach((r) => { r.hidden = star; });
+    document.querySelectorAll(".star-only").forEach((r) => { r.hidden = !star; });
+  };
+  lookEl.addEventListener("change", showLookRows);
   pair("seeds", "seeds-n");
 
   // Twist and Seeds only mean something for the spiral.
@@ -1037,6 +1331,7 @@
       set: {
         count: 7000, gather: 75, size: 1.4, alpha: 70, swarm: 40, crawl: 6,
         breath: 0, "breath-shape": "wave", cycle: 30, pivot: 0, strays: 100,
+        look: "streak", "count-auto": false,
         "col-mote": "#ffffff", "col-still": "#f5f4f0", "col-ground": "#f5f4f0",
       },
     },
@@ -1047,6 +1342,7 @@
       set: {
         count: 9000, gather: 80, size: 1.6, alpha: 75, swarm: 20, crawl: 7,
         breath: 6, "breath-shape": "whole", cycle: 30, pivot: 35, strays: 55,
+        look: "streak", "count-auto": false,
         "col-mote": "#ffffff", "col-still": "#141414", "col-ground": "#8e8c87",
       },
     },
@@ -1058,7 +1354,19 @@
         count: 10000, gather: 85, size: 1.6, alpha: 75, swarm: 20, crawl: 7,
         breath: 12, "breath-shape": "spiral", twist: 6, seeds: 7,
         cycle: 0, pivot: 35, strays: 45,
+        look: "streak", "count-auto": false,
         "col-mote": "#ffffff", "col-still": "#141414", "col-ground": "#8e8c87",
+      },
+    },
+    wanwu: {
+      label: "萬物 Wanwu — every colour, sparkling",
+      store: "janvas.page4.strokes.wanwu",
+      guide: "萬物",
+      set: {
+        count: 12000, "count-auto": true, gather: 80, size: 2, alpha: 90,
+        swarm: 30, crawl: 4, breath: 0, "breath-shape": "wave", cycle: 0,
+        strays: 45, look: "star", sparkle: 60, drift: 30,
+        "col-ground": "#07080f",
       },
     },
   };
@@ -1073,6 +1381,7 @@
   function applyStage(key) {
     const st = STAGES[key] || STAGES.wuji;
     for (const [id, v] of Object.entries(st.set)) {
+      if (typeof v === "boolean") { document.getElementById(id).checked = v; continue; }
       document.getElementById(id).value = v;
       const twin = document.getElementById(id + "-n");
       if (twin) twin.value = v;
@@ -1082,6 +1391,8 @@
     loadStrokes();
     applyGround();
     showShapeRows();
+    showLookRows();
+    restartAuto();
     gatherShare = val("gather") / 100;
     drawGuide();
     drawPad();
@@ -1107,6 +1418,7 @@
   try { startStage = localStorage.getItem(STAGE_KEY) || "wuji"; } catch (e) {}
   if (!STAGES[startStage]) startStage = "wuji";
   stageSel.value = startStage;
+  initGL();
   layout();
   applyStage(startStage);
   allocate(val("count"));
