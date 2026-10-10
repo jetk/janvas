@@ -267,12 +267,13 @@
         always grows out of the ground and stops at the <strong>height</strong>
         line; when you lift your finger it bursts. A tap grows a straight
         stem to the height line for you.</p>
-        <p>Each plant is its own firework. The dandelion flares yellow, then
-        blows out into seeds that stall, turn their parachutes up and drift
-        away. The daisy opens as a ring of petals around a gold centre with a
+        <p>Each plant is its own firework. The dandelion is a rocket: it
+        whistles higher as it climbs, trailing sparks, then bangs and blows
+        out into seeds that stall, turn their parachutes up and drift away.
+        The daisy opens as a ring of petals around a gold centre with a
         chime pitched by where it stands, low on the left and high on the
-        right. Grass throws up a willow of green blades that droop and
-        crackle.</p>
+        right. Grass is a streamer: it never bursts, it just streaks up the
+        sky fizzing, crackling and shedding glitter.</p>
         <p>Every stroke is recorded in order, with its timing.
         <strong>Replay</strong> plays the sequence back as you drew it
         (pauses longer than 4 seconds are shortened).
@@ -285,6 +286,9 @@
         its BPM. <strong>Click track</strong> plays a metronome so you can
         check the match. <strong>Loop</strong> keeps the sequence going until
         Stop.</p>
+        <p>While a sequence is playing, anything you draw goes off live on
+        top of it but isn't recorded, so you can lay down a beat, loop it,
+        and jam over it. Stop to go back to recording.</p>
         <p>On an iPhone, turn off silent mode to hear the sounds. Your
         sequence is kept in this browser between visits.</p>
       </details>
@@ -477,18 +481,73 @@
     return 261.63 * Math.pow(2, (PENTA[step % 5] + 12 * Math.floor(step / 5)) / 12);
   }
 
-  function riseSound(dest, k, t, dur) {
-    if (dur < 0.06) return;
-    if (k === "grass") tone(dest, t, 700, 2600, dur, 0.05);                 // whistle
-    else if (k === "daisy") tone(dest, t, 220, 660, dur, 0.04, "triangle");
-    else noise(dest, t, dur, 0.06, { type: "bandpass", f0: 600, f1: 2400, q: 1.2, attack: dur * 0.85 });
+  // A held noise, for the hiss of a rocket motor or a streamer's fizz.
+  function hiss(dest, t, dur, gain, f0, f1, q) {
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuf;
+    src.loop = true;
+    const f = ac.createBiquadFilter();
+    f.type = "bandpass";
+    f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t);
+    f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + Math.min(0.05, dur * 0.3));
+    g.gain.setValueAtTime(gain, t + dur * 0.85);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f).connect(g).connect(dest);
+    src.start(t, Math.random() * 1.5);
+    src.stop(t + dur + 0.05);
   }
 
-  function burstSound(dest, k, t, x, crackles) {
+  // A rocket whistles higher the higher it climbs: this is its pitch at
+  // height y (1 is the ground, 0 the top of the sky).
+  const whistleFreq = (y) => 1500 * Math.pow(2, 1.2 * (1 - y));
+
+  // A whistle with a little flutter, held until the instant of the bang.
+  function whistle(dest, t, dur, f1, gain = 0.07) {
+    const o = ac.createOscillator();
+    o.frequency.setValueAtTime(whistleFreq(1), t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const lfo = ac.createOscillator();
+    lfo.frequency.value = 28;
+    const depth = ac.createGain();
+    depth.gain.value = 35;
+    lfo.connect(depth).connect(o.frequency);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + Math.min(0.08, dur * 0.3));
+    g.gain.setValueAtTime(gain, t + dur - 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(dest);
+    o.start(t);
+    lfo.start(t);
+    o.stop(t + dur + 0.05);
+    lfo.stop(t + dur + 0.05);
+  }
+
+  // One crackle of a streamer: a dry tick of bright noise.
+  function crackle(dest, t) {
+    noise(dest, t, 0.012, 0.05 + Math.random() * 0.12, { type: "highpass", f0: 3000, attack: 0.001 });
+  }
+
+  function riseSound(dest, k, t, dur, y) {
+    if (dur < 0.06) return;
+    if (k === "dandelion") {
+      whistle(dest, t, dur, whistleFreq(y));
+      hiss(dest, t, dur, 0.015, 1200, 2000, 0.7);
+    } else if (k === "daisy") tone(dest, t, 220, 660, dur, 0.04, "triangle");
+    // Grass is a streamer: its fizz runs on a little past the top.
+    else hiss(dest, t, dur + 0.3, 0.05, 3500, 5500, 0.8);
+  }
+
+  function burstSound(dest, k, t, x) {
     const f = pitchAt(x);
     if (k === "dandelion") {
-      tone(dest, t, 95, 45, 0.18, 0.5);                                        // soft thump
-      noise(dest, t, 0.45, 0.35, { type: "lowpass", f0: 3200, f1: 300 });     // the puff
+      tone(dest, t, 110, 38, 0.5, 0.9);                                        // boom
+      noise(dest, t, 0.08, 0.6, { type: "highpass", f0: 1500 });               // crack
+      noise(dest, t, 0.9, 0.45, { type: "lowpass", f0: 2600, f1: 180 });      // the blast rolling off
       noise(dest, t + 0.05, 1.8, 0.05, { type: "highpass", f0: 6000, q: 0.5, attack: 0.25 });
       for (let i = 0; i < 5; i++) {                                           // seeds glinting
         const ft = f * 4 * (1 + Math.random() * 0.03);
@@ -499,12 +558,56 @@
       noise(dest, t, 0.07, 0.35, { type: "bandpass", f0: 2200, f1: 1200, q: 0.9 });
       [1, 1.5, 2].forEach((m, i) => tone(dest, t, f * m, f * m, 1.4 - i * 0.3, 0.12 / (i + 1)));
     } else {
-      noise(dest, t, 0.04, 0.6, { type: "highpass", f0: 1800 });              // snap
-      tone(dest, t, 220, 70, 0.12, 0.45);
-      for (const c of crackles) {
-        noise(dest, c, 0.012, 0.05 + Math.random() * 0.12, { type: "highpass", f0: 3000, attack: 0.001 });
-      }
+      noise(dest, t, 0.3, 0.08, { type: "highpass", f0: 5000, attack: 0.02 }); // a last fizz, no bang
     }
+  }
+
+  // The sound that follows a finger while it draws: a rocket's whistle that
+  // climbs with the tip, or a streamer's hiss. Crackles are added per frame.
+  let voice = null;
+  function startVoice(k, y) {
+    if (k === "daisy") return;
+    const t = ac.currentTime;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(k === "grass" ? 0.05 : 0.06, t + 0.08);
+    g.connect(master);
+    voice = { g, nodes: [], freq: null };
+    if (k === "dandelion") {
+      const o = ac.createOscillator();
+      o.frequency.value = whistleFreq(y);
+      const lfo = ac.createOscillator();
+      lfo.frequency.value = 28;
+      const depth = ac.createGain();
+      depth.gain.value = 35;
+      lfo.connect(depth).connect(o.frequency);
+      o.connect(g);
+      voice.nodes.push(o, lfo);
+      voice.freq = o.frequency;
+    } else {
+      const src = ac.createBufferSource();
+      src.buffer = noiseBuf;
+      src.loop = true;
+      const f = ac.createBiquadFilter();
+      f.type = "bandpass";
+      f.frequency.value = 4500;
+      f.Q.value = 0.8;
+      src.connect(f).connect(g);
+      voice.nodes.push(src);
+    }
+    voice.nodes.forEach((n) => n.start(t));
+  }
+  function voiceTo(y) {
+    if (voice && voice.freq) voice.freq.setTargetAtTime(whistleFreq(y), ac.currentTime, 0.04);
+  }
+  function stopVoice() {
+    if (!voice) return;
+    const t = ac.currentTime, gp = voice.g.gain;
+    if (gp.cancelAndHoldAtTime) gp.cancelAndHoldAtTime(t);
+    else gp.cancelScheduledValues(t);
+    gp.setTargetAtTime(0, t, 0.02);
+    voice.nodes.forEach((n) => n.stop(t + 0.2));
+    voice = null;
   }
 
   function click(dest, t, accent) {
@@ -523,19 +626,51 @@
     const e = {
       k: st.k, p: st.p, x: top[0], y: top[1],
       riseStart, burst, fired: false, fromPlay,
-      crackles: [], blades: [], shown: 0,
+      crackles: [], shown: 0,
     };
     if (st.k === "grass") {
-      for (let i = 0; i < 18; i++) e.crackles.push(burst + 0.7 + Math.random() * 0.9);
+      // A streamer crackles all the way up and a moment past the top.
+      const end = burst + 0.35;
+      const n = Math.ceil((end - riseStart) * 24);
+      for (let i = 0; i < n; i++) e.crackles.push(riseStart + Math.random() * (end - riseStart));
       e.crackles.sort((a, b) => a - b);
+      for (const c of e.crackles) crackle(dest, c);
     }
-    riseSound(dest, st.k, riseStart, burst - riseStart);
-    burstSound(dest, st.k, burst, e.x, e.crackles);
+    riseSound(dest, st.k, riseStart, burst - riseStart, e.y);
+    burstSound(dest, st.k, burst, e.x);
     launches.push(e);
     return e;
   }
 
   const R = Math.random;
+  // How many particles to emit this frame at `rate` per second.
+  const emit = (rate, dt) => Math.floor(rate * dt + R());
+  const GLITTER = ["#eaffd0", "#9be15d", "#ffffff", "#ffe9a0", "#c8ffb0"];
+  const TRAIL = ["#ffb703", "#ffd23f", "#fff1b0"];
+
+  // Sparkles shed by a streamer's head.
+  function glitter(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      const a = R() * Math.PI * 2, v = S * 0.1 * R();
+      spawn("glitter", x, y, Math.cos(a) * v, Math.sin(a) * v, 0.35 + R() * 0.6,
+        { col: GLITTER[(R() * GLITTER.length) | 0] });
+    }
+  }
+  // Sparks falling from a rocket's tail.
+  function trail(x, y, n) {
+    for (let i = 0; i < n; i++) {
+      spawn("trail", x + (R() - 0.5) * S * 0.004, y, (R() - 0.5) * S * 0.06, S * 0.05 * R(),
+        0.25 + R() * 0.3, { col: TRAIL[(R() * TRAIL.length) | 0] });
+    }
+  }
+  // One crackle seen: a tiny white pop of sparks.
+  function pop(x, y) {
+    for (let i = 0; i < 5; i++) {
+      const a = R() * Math.PI * 2, v = S * (0.12 + 0.14 * R());
+      spawn("spark", x, y, Math.cos(a) * v, Math.sin(a) * v, 0.08 + R() * 0.08,
+        { col: R() < 0.6 ? "#ffffff" : "#e4ffd0" });
+    }
+  }
   function spawn(type, x, y, vx, vy, life, extra) {
     const q = { type, x, y, vx, vy, life, age: 0 };
     if (extra) Object.assign(q, extra);
@@ -581,14 +716,8 @@
           { col: ["#ffd23f", "#ffbf1f", "#fff09a"][(R() * 3) | 0] });
       }
     } else {
-      spawn("flash", x, y, 0, 0, 0.25, { col: "#7dff8a" });
-      for (let i = 0; i < 26; i++) {
-        const a = -Math.PI / 2 + (R() - 0.5) * 2.3;
-        const v = S * (0.4 + 0.26 * R());
-        e.blades.push(spawn("blade", x, y, Math.cos(a) * v, Math.sin(a) * v, 2.2 + R() * 0.6, {
-          tr: [x, y], col: ["#4fd05f", "#9be15d", "#3fb950", "#c8ffb0"][(R() * 4) | 0],
-        }));
-      }
+      // A streamer doesn't burst: it just sheds a last shower of glitter.
+      glitter(x, y, 30);
     }
   }
 
@@ -623,18 +752,22 @@
       q.x += q.vx * dt;
       q.y += q.vy * dt;
     },
-    blade(q, dt) {
-      // A willow: arcs up, then droops, trailing its own path.
-      const d = expd(1.1, dt);
+    glitter(q, dt) {
+      const d = expd(2.5, dt);
       q.vx *= d;
-      q.vy = q.vy * d + S * 0.5 * dt;
+      q.vy = q.vy * d + S * 0.12 * dt;
       q.x += q.vx * dt;
       q.y += q.vy * dt;
-      q.tr.push(q.x, q.y);
-      if (q.tr.length > 28) q.tr.splice(0, 2);
+    },
+    trail(q, dt) {
+      const d = expd(3, dt);
+      q.vx *= d;
+      q.vy = q.vy * d + S * 0.25 * dt;
+      q.x += q.vx * dt;
+      q.y += q.vy * dt;
     },
     flash() {},
-    spark() {},
+    spark(q, dt) { const d = expd(10, dt); q.vx *= d; q.vy *= d; q.x += q.vx * dt; q.y += q.vy * dt; },
   };
 
   const fade = (q, from) => {
@@ -672,22 +805,9 @@
       ctx.ellipse(q.x, q.y, S * 0.016 * q.sz, S * 0.0045 * q.sz, q.rot, 0, 7);
       ctx.fill();
     },
-    blade(q) {
-      const tr = q.tr, n = tr.length / 2;
-      if (n < 2) return;
-      const a0 = fade(q, 0.55);
-      ctx.strokeStyle = q.col;
-      ctx.lineCap = "round";
-      for (let j = 1; j < n; j++) {
-        const u = j / (n - 1);
-        ctx.globalAlpha = a0 * u * 0.9;
-        ctx.lineWidth = Math.max(1, S * 0.004 * u);
-        ctx.beginPath();
-        ctx.moveTo(tr[2 * j - 2], tr[2 * j - 1]);
-        ctx.lineTo(tr[2 * j], tr[2 * j + 1]);
-        ctx.stroke();
-      }
-    },
+    // Glitter twinkles: most frames dim, now and then a full glint.
+    glitter(q) { dot(q, fade(q, 0.4) * (R() < 0.3 ? 1 : 0.35), S * 0.0024); },
+    trail(q) { dot(q, fade(q, 0.2) * 0.85, S * 0.0022); },
     flash(q) {
       const u = q.age / q.life, r = S * (0.03 + 0.12 * u);
       const g = ctx.createRadialGradient(q.x, q.y, 0, q.x, q.y, r);
@@ -697,10 +817,7 @@
       ctx.fillStyle = g;
       ctx.fillRect(q.x - r, q.y - r, 2 * r, 2 * r);
     },
-    spark(q) {
-      q.col = "#ffffff";
-      dot(q, 1 - q.age / q.life, S * 0.004);
-    },
+    spark(q) { dot(q, 1 - q.age / q.life, S * 0.0025); },
   };
   function dot(q, alpha, r) {
     ctx.globalAlpha = alpha;
@@ -745,6 +862,41 @@
       ctx.stroke();
     }
     return [tx, ty];
+  }
+
+  // A streamer leaves no stem, only a bright streak behind its head: the
+  // last `trail` (in sky units) of the path up to fraction u. Returns the tip.
+  function drawStreak(p, u, alpha, trail) {
+    const { xs, ys, cum, total } = stemPath(p);
+    const at = (L) => {
+      let i = 1;
+      while (i < xs.length - 1 && cum[i] < L) i++;
+      if (xs.length < 2) return [xs[0], ys[0]];
+      const seg = cum[i] - cum[i - 1];
+      const f = seg > 0 ? Math.max(0, Math.min(1, (L - cum[i - 1]) / seg)) : 1;
+      return [xs[i - 1] + (xs[i] - xs[i - 1]) * f, ys[i - 1] + (ys[i] - ys[i - 1]) * f];
+    };
+    const end = total * u, start = Math.max(0, end - S * trail);
+    ctx.strokeStyle = KINDS.grass.head;
+    ctx.lineCap = "round";
+    let prev = at(start);
+    const N = 18;
+    for (let j = 1; j <= N; j++) {
+      const v = j / N, pt = at(start + (end - start) * v);
+      ctx.globalAlpha = alpha * v * v;
+      ctx.lineWidth = Math.max(1, S * 0.004 * v);
+      ctx.beginPath();
+      ctx.moveTo(prev[0], prev[1]);
+      ctx.lineTo(pt[0], pt[1]);
+      ctx.stroke();
+      prev = pt;
+    }
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(prev[0], prev[1], Math.max(1, S * 0.004), 0, 7);
+    ctx.fill();
+    return prev;
   }
 
   function drawHead(k, x, y, alpha) {
@@ -793,6 +945,7 @@
       lastBurst: 0,
     };
     schedule();
+    updateNote();
   }
 
   function stopPlay() {
@@ -802,6 +955,7 @@
     bus = newBus();
     launches = launches.filter((e) => !e.fromPlay || e.fired);
     play = null;
+    updateNote();
   }
 
   function schedule() {
@@ -842,6 +996,7 @@
     if (!$("loop").checked && play.n >= L && play.fired >= play.n && vt > play.lastBurst + 0.5) {
       beatStatus.textContent = `All ${L} burst${L === 1 ? "" : "s"} played.`;
       play = null;
+      updateNote();
       return;
     }
     const k = play.fired ? ((play.fired - 1) % L) + 1 : 0;
@@ -870,6 +1025,8 @@
     audio();
     sky.setPointerCapture(e.pointerId);
     current = [skyPoint(e)];
+    stopVoice();
+    startVoice(kind, current[0][1]);
   });
   sky.addEventListener("pointermove", (e) => {
     if (!current) return;
@@ -879,23 +1036,34 @@
       const last = current[current.length - 1];
       if (Math.hypot(p[0] - last[0], p[1] - last[1]) > 0.002) current.push(p);
     }
+    voiceTo(current[current.length - 1][1]);
   });
+  // How long a tapped stem takes to grow: a rocket and a streamer need long
+  // enough to be seen and heard going up.
+  const TAP_RISE = { dandelion: 0.6, daisy: 0.15, grass: 0.7 };
+
   function endStroke() {
     if (!current) return;
     audio();
+    stopVoice();
     const raw = current;
     current = null;
     const tap = pathLen(raw) < TAP;
     const p = shape(raw, val("height")).map(([x, y]) => [+x.toFixed(4), +y.toFixed(4)]);
     const now = ac.currentTime;
     // A drawn stem is already up, so it bursts on release; a tap grows first.
-    const burst = now + (tap ? 0.15 : 0);
-    if (recAnchor === null) {
-      recAnchor = burst - (strokes.length ? strokes[strokes.length - 1].t + 1 : 0);
+    const burst = now + (tap ? TAP_RISE[kind] : 0);
+    const st = { k: kind, p, t: 0 };
+    // While a sequence is playing, strokes play over it live but are not
+    // recorded, so you can jam on top of a loop without changing it.
+    if (!play) {
+      if (recAnchor === null) {
+        recAnchor = burst - (strokes.length ? strokes[strokes.length - 1].t + 1 : 0);
+      }
+      st.t = +(burst - recAnchor).toFixed(3);
+      strokes.push(st);
+      save();
     }
-    const st = { k: kind, p, t: +(burst - recAnchor).toFixed(3) };
-    strokes.push(st);
-    save();
     launch(st, now, burst, master, false);
     updateNote();
   }
@@ -904,9 +1072,10 @@
 
   const note = $("note");
   function updateNote() {
-    note.textContent = strokes.length
-      ? `${strokes.length} stroke${strokes.length === 1 ? "" : "s"} recorded`
-      : "Draw a stem up from the ground, or tap to plant one.";
+    const n = `${strokes.length} stroke${strokes.length === 1 ? "" : "s"} recorded`;
+    note.textContent = play
+      ? `${n} · playing: what you draw now plays on top but isn't recorded`
+      : strokes.length ? n : "Draw a stem up from the ground, or tap to plant one.";
   }
 
   // --- Frame --------------------------------------------------------------
@@ -921,47 +1090,53 @@
     ctx.globalAlpha = 1;
     ctx.drawImage(backdrop, 0, 0);
 
-    // The recorded sequence as faint stems, and the height line, while idle.
+    // The recorded sequence as faint stems while idle; the height line always,
+    // since you can draw over a loop as it plays.
     if (!play) {
       for (const st of strokes) {
         const [x, y] = drawStem(st.k, st.p, 1, 0.2);
         drawHead(st.k, x, y, 0.35);
       }
-      const hy = (1 - val("height") / 100) * H;
-      ctx.globalAlpha = 0.25;
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = dpr;
-      ctx.setLineDash([6 * dpr, 6 * dpr]);
-      ctx.beginPath();
-      ctx.moveTo(0, hy);
-      ctx.lineTo(W, hy);
-      ctx.stroke();
-      ctx.setLineDash([]);
     }
+    const hy = (1 - val("height") / 100) * H;
+    ctx.globalAlpha = play ? 0.12 : 0.25;
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = dpr;
+    ctx.setLineDash([6 * dpr, 6 * dpr]);
+    ctx.beginPath();
+    ctx.moveTo(0, hy);
+    ctx.lineTo(W, hy);
+    ctx.stroke();
+    ctx.setLineDash([]);
 
     // Stems rising, bursting and fading.
     for (let i = launches.length - 1; i >= 0; i--) {
       const e = launches[i];
       if (vt < e.riseStart) continue;
       if (!e.fired && vt >= e.burst) fire(e);
-      if (e.fired) {
-        const a = 1 - (vt - e.burst) / 3;
-        if (a <= 0 && e.shown >= e.crackles.length) { launches.splice(i, 1); continue; }
-        if (a > 0) drawStem(e.k, e.p, 1, a * 0.8);
-        // Grass crackles: a white pop on a live blade at each crackle time.
-        while (e.shown < e.crackles.length && vt >= e.crackles[e.shown]) {
-          const live = e.blades.filter((b) => b.age < b.life);
-          if (live.length) {
-            const b = live[(R() * live.length) | 0];
-            spawn("spark", b.x, b.y, 0, 0, 0.07, {});
-          }
-          e.shown++;
-        }
+      const since = vt - e.burst;
+      if (e.fired && since > 3 && e.shown >= e.crackles.length) { launches.splice(i, 1); continue; }
+      const span = e.burst - e.riseStart;
+      const u = e.fired ? 1 : span > 0 ? (vt - e.riseStart) / span : 1;
+      let tip;
+      if (e.k === "grass") {
+        // The streak's tail catches up with its head once it reaches the top.
+        const tr = e.fired ? 0.3 * Math.max(0, 1 - since / 0.5) : 0.3;
+        if (tr > 0) tip = drawStreak(e.p, u, 0.95, tr);
+        else tip = [e.x * W, e.y * H];
+        if (!e.fired) glitter(tip[0], tip[1], emit(140, dt));
+      } else if (e.fired) {
+        if (since < 3) drawStem(e.k, e.p, 1, (1 - since / 3) * 0.8);
       } else {
-        const span = e.burst - e.riseStart;
-        const u = span > 0 ? (vt - e.riseStart) / span : 1;
-        const [x, y] = drawStem(e.k, e.p, u, 0.9);
-        drawHead(e.k, x, y, 1);
+        tip = drawStem(e.k, e.p, u, 0.9);
+        drawHead(e.k, tip[0], tip[1], 1);
+        if (e.k === "dandelion") trail(tip[0], tip[1], emit(90, dt));
+      }
+      // Each crackle heard is seen as a pop at the head, or around the top.
+      while (e.shown < e.crackles.length && vt >= e.crackles[e.shown]) {
+        if (e.fired || !tip) pop(e.x * W + (R() - 0.5) * S * 0.06, e.y * H + (R() - 0.5) * S * 0.06);
+        else pop(tip[0], tip[1]);
+        e.shown++;
       }
     }
 
@@ -979,9 +1154,21 @@
     }
     ctx.globalCompositeOperation = "source-over";
 
+    // The stroke being drawn: a rocket shedding sparks, or a streamer
+    // glittering and crackling as it goes.
     if (current) {
-      const [x, y] = drawStem(kind, current, 1, 0.9);
-      drawHead(kind, x, y, 1);
+      if (kind === "grass") {
+        const [x, y] = drawStreak(current, 1, 0.95, 0.3);
+        glitter(x, y, emit(140, dt));
+        for (let n = emit(24, dt); n > 0; n--) {
+          if (ac) crackle(master, ac.currentTime + R() * dt);
+          pop(x, y);
+        }
+      } else {
+        const [x, y] = drawStem(kind, current, 1, 0.9);
+        drawHead(kind, x, y, 1);
+        if (kind === "dandelion") trail(x, y, emit(90, dt));
+      }
     }
     ctx.globalAlpha = 1;
     requestAnimationFrame(frame);
