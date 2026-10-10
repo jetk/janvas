@@ -266,7 +266,10 @@
         <strong>grass</strong> and draw a stem upwards in the sky. A stem
         always grows out of the ground and stops at the <strong>height</strong>
         line; when you lift your finger it bursts. A tap grows a straight
-        stem to the height line for you.</p>
+        stem to the height line for you. A tap <em>above</em> the height
+        line always launches a dandelion rocket, whatever is picked, and it
+        bursts where you tapped, so with grass picked you can play
+        streamers below the line and rockets above it.</p>
         <p>Each plant is its own firework. The dandelion is a rocket: it
         whistles higher as it climbs, trailing sparks, then bangs and blows
         out into seeds that stall, turn their parachutes up and drift away.
@@ -1019,6 +1022,9 @@
     ];
   }
 
+  let pressAbove = false;
+  const aboveLine = (pt) => pt[1] < 1 - val("height") / 100;
+
   sky.addEventListener("pointerdown", (e) => {
     if (e.button !== undefined && e.button > 0) return;
     e.preventDefault();
@@ -1026,7 +1032,10 @@
     sky.setPointerCapture(e.pointerId);
     current = [skyPoint(e)];
     stopVoice();
-    startVoice(kind, current[0][1]);
+    // A press above the height line may be a tap that launches a rocket, so
+    // it stays silent and unseen until it moves far enough to be a stroke.
+    pressAbove = aboveLine(current[0]);
+    if (!pressAbove) startVoice(kind, current[0][1]);
   });
   sky.addEventListener("pointermove", (e) => {
     if (!current) return;
@@ -1035,6 +1044,10 @@
       const p = skyPoint(ev);
       const last = current[current.length - 1];
       if (Math.hypot(p[0] - last[0], p[1] - last[1]) > 0.002) current.push(p);
+    }
+    if (pressAbove && pathLen(current) >= TAP) {
+      pressAbove = false;
+      startVoice(kind, current[current.length - 1][1]);
     }
     voiceTo(current[current.length - 1][1]);
   });
@@ -1049,11 +1062,16 @@
     const raw = current;
     current = null;
     const tap = pathLen(raw) < TAP;
-    const p = shape(raw, val("height")).map(([x, y]) => [+x.toFixed(4), +y.toFixed(4)]);
+    // A tap above the height line launches a rocket whatever is picked, and
+    // it bursts right where you tapped.
+    const rocket = tap && aboveLine(raw[0]);
+    const k = rocket ? "dandelion" : kind;
+    const h = rocket ? (1 - raw[0][1]) * 100 : val("height");
+    const p = shape(raw, h).map(([x, y]) => [+x.toFixed(4), +y.toFixed(4)]);
     const now = ac.currentTime;
     // A drawn stem is already up, so it bursts on release; a tap grows first.
-    const burst = now + (tap ? TAP_RISE[kind] : 0);
-    const st = { k: kind, p, t: 0 };
+    const burst = now + (tap ? TAP_RISE[k] : 0);
+    const st = { k, p, t: 0 };
     // While a sequence is playing, strokes play over it live but are not
     // recorded, so you can jam on top of a loop without changing it.
     if (!play) {
@@ -1156,7 +1174,7 @@
 
     // The stroke being drawn: a rocket shedding sparks, or a streamer
     // glittering and crackling as it goes.
-    if (current) {
+    if (current && !pressAbove) {
       if (kind === "grass") {
         const [x, y] = drawStreak(current, 1, 0.95, 0.3);
         glitter(x, y, emit(140, dt));
