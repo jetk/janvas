@@ -1,0 +1,1116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>janvas — garden 枯山水</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: #f5f4f0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  body {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+  }
+  .stage {
+    flex: 1 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 52px 16px 12px;
+  }
+  #out {
+    width: 70vmin;
+    height: 70vmin;
+    display: block;
+    border-radius: 2px;
+    box-shadow: 0 0 0 1px #ddd9d0;
+  }
+  h1 {
+    margin: 0;
+    font-size: 14px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: #2b2b2b;
+    font-weight: 500;
+  }
+  h1 small {
+    display: block;
+    margin-top: 4px;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: #8a8578;
+  }
+  .controls {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 40px;
+    padding: 16px 24px 32px;
+    border-top: 1px solid #ddd9d0;
+    background: #f5f4f0;
+    flex-wrap: wrap;
+  }
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 240px;
+    max-width: 420px;
+    flex: 1 1 240px;
+  }
+  .group h2 {
+    margin: 0 0 2px;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #2b2b2b;
+  }
+  /* The drawing pad. touch-action: none stops the page from scrolling or
+     zooming while a finger is drawing on it. */
+  .pad-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: #efe8d8;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  #pad {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: #555;
+  }
+  .row .name { width: 62px; flex: none; }
+  .row input[type="range"] { flex: 1; min-width: 60px; accent-color: #2b2b2b; }
+  .row input[type="number"] {
+    width: 64px;
+    flex: none;
+    font-size: 16px;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 4px;
+  }
+  .row input[type="color"] {
+    width: 44px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: none;
+  }
+  .row .range-hint { font-size: 10px; color: #999; width: 56px; flex: none; }
+  .buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 12px;
+    min-height: 38px;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    background: #fff;
+    color: #2b2b2b;
+  }
+  button:active { background: #eee; }
+  .tools { display: flex; }
+  .tools button { flex: 1; border-radius: 0; }
+  .tools button:first-child { border-radius: 3px 0 0 3px; }
+  .tools button:last-child { border-radius: 0 3px 3px 0; border-left: none; }
+  .tools button[aria-pressed="true"] { background: #2b2b2b; color: #f5f4f0; border-color: #2b2b2b; }
+  .row.beat span { flex: none; }
+  .row.beat button { min-height: 32px; padding: 4px 12px; }
+  .note { font-size: 11px; color: #8a8578; min-height: 14px; }
+  details { font-size: 12px; line-height: 1.55; color: #555; }
+  details summary {
+    cursor: pointer;
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #2b2b2b;
+    padding: 6px 0;
+  }
+  details p { margin: 8px 0; }
+
+  @media (max-width: 720px) {
+    #out { width: 92vw; height: 92vw; }
+    .controls { flex-direction: column; gap: 22px; padding: 16px 16px 40px; }
+    .group { max-width: none; min-width: 0; width: 100%; }
+    .row .name { width: 56px; }
+    .row .range-hint { display: none; }
+  }
+</style>
+</head>
+<body>
+  <script src="../menu.js"></script>
+
+  <div class="stage">
+    <canvas id="out"></canvas>
+    <h1>janvas<small>garden 枯山水</small></h1>
+  </div>
+
+  <div class="controls">
+    <div class="group">
+      <h2>Draw</h2>
+      <div class="tools" role="group" aria-label="Tool">
+        <button type="button" id="tool-stone" aria-pressed="true">Stone</button>
+        <button type="button" id="tool-rake" aria-pressed="false">Rake path</button>
+      </div>
+      <div class="pad-wrap">
+        <canvas id="pad"></canvas>
+      </div>
+      <div class="buttons">
+        <button type="button" id="undo">Undo</button>
+        <button type="button" id="clear">Clear</button>
+        <button type="button" id="replay">Replay</button>
+      </div>
+      <div class="row beat">
+        <span class="name">Tempo</span>
+        <input type="number" id="bpm" min="20" max="300" step="0.1" value="72" aria-label="Beats per minute">
+        <span>BPM</span>
+        <button type="button" id="tap">Tap</button>
+      </div>
+      <div class="note" id="note"></div>
+    </div>
+
+    <div class="group">
+      <h2>Garden</h2>
+      <div class="row">
+        <span class="name">Speed</span>
+        <input type="range" id="speed" min="0.25" max="8" step="0.25" value="2">
+        <input type="number" id="speed-n" min="0.25" max="8" step="0.25" value="2">
+        <span class="range-hint">widths/beat</span>
+      </div>
+      <div class="row">
+        <span class="name">Rake</span>
+        <input type="range" id="width" min="3" max="14" step="0.5" value="7">
+        <input type="number" id="width-n" min="3" max="14" step="0.5" value="7">
+        <span class="range-hint">% of side</span>
+      </div>
+      <div class="row">
+        <span class="name">Tines</span>
+        <input type="range" id="tines" min="2" max="12" step="1" value="6">
+        <input type="number" id="tines-n" min="2" max="12" step="1" value="6">
+        <span class="range-hint">grooves</span>
+      </div>
+      <div class="row">
+        <span class="name">Laps</span>
+        <input type="range" id="laps" min="0" max="4" step="1" value="2">
+        <input type="number" id="laps-n" min="0" max="4" step="1" value="2">
+        <span class="range-hint">per stone</span>
+      </div>
+      <div class="row">
+        <span class="name">Gap</span>
+        <input type="range" id="gap" min="0" max="5" step="0.25" value="0.75">
+        <input type="number" id="gap-n" min="0" max="5" step="0.25" value="0.75">
+        <span class="range-hint">% to stone</span>
+      </div>
+      <div class="row">
+        <span class="name">Sand</span>
+        <input type="color" id="col-sand" value="#e6dcc6">
+      </div>
+
+      <details>
+        <summary>How it works</summary>
+        <p>Pick <strong>Stone</strong> and draw the outline of a stone on the
+        pad; a tap makes a pebble. It drops into the garden from above and
+        lands with a thud. Pick <strong>Rake path</strong> and draw where the
+        monk should drive the Zamboni. Its rake combs grooves into the sand
+        behind it, and where the path runs into a stone the Zamboni goes
+        round it instead: <strong>Laps</strong> times in a widening spiral the
+        first time it meets each stone, which leaves the rings a garden has
+        around its rocks, then on round the stone until it can pick the path
+        up again on the far side. <strong>Gap</strong> is how close it dares
+        to drive to a stone.</p>
+        <p><strong>Replay</strong> rebuilds the garden in the order you drew
+        it: the stones fall one per beat at the <strong>Tempo</strong>, then
+        the Zamboni rakes each path in turn, moving <strong>Speed</strong>
+        rake widths every beat. Press Replay on a beat: the first stone lands
+        one beat later. Tap the <strong>Tap</strong> button along with a song
+        to measure its tempo.</p>
+        <p>Changing the rake, laps or gap redraws the finished garden. Your
+        drawing is kept in this browser between visits.</p>
+      </details>
+    </div>
+  </div>
+
+<script>
+  // --- Sound -------------------------------------------------------------
+  // The places sound will hook in. Nothing plays yet.
+  const sfx = {
+    thud(size) {},          // a stone lands; size is about 0.01 (pebble) to 0.3
+    rakeStart() {},         // the Zamboni starts raking a path
+    rake(speed) {},         // every frame while raking; speed in sides per second
+    rakeStop() {},          // it has finished the path
+  };
+
+  // --- Drawing -------------------------------------------------------------
+  // Items are kept in the order drawn: { k: "stone" | "rake", p: [[x, y]...] }
+  // in unit coordinates (0..1 on both axes).
+  const STORE = "janvas.page6.items";
+  let items = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE) || "[]");
+    if (Array.isArray(saved)) items = saved.filter((it) => it && Array.isArray(it.p) && it.p.length);
+  } catch (e) { /* private window or blocked storage: start blank */ }
+  const save = () => { try { localStorage.setItem(STORE, JSON.stringify(items)); } catch (e) {} };
+
+  const out = document.getElementById("out");
+  const outCtx = out.getContext("2d");
+  const pad = document.getElementById("pad");
+  const padCtx = pad.getContext("2d");
+  const note = document.getElementById("note");
+  const val = (id) => +document.getElementById(id).value;
+  const rakeW = () => val("width") / 100;
+  let tool = "stone";
+  let current = null;
+
+  function sizeCanvas(c) {
+    const r = c.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    c.width = Math.max(1, Math.round(r.width * dpr));
+    c.height = Math.max(1, Math.round(r.height * dpr));
+  }
+
+  // --- Geometry ------------------------------------------------------------
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+  // Evenly spaced points along an open polyline.
+  function resample(pts, step) {
+    if (pts.length < 2) return pts.map((p) => p.slice());
+    const outPts = [pts[0].slice()];
+    let carry = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const len = dist(a, b);
+      let s = step - carry;
+      while (s <= len) {
+        outPts.push([a[0] + (b[0] - a[0]) * s / len, a[1] + (b[1] - a[1]) * s / len]);
+        s += step;
+      }
+      carry = len - (s - step);
+    }
+    const last = pts[pts.length - 1];
+    if (dist(outPts[outPts.length - 1], last) > step * 0.3) outPts.push(last.slice());
+    return outPts;
+  }
+
+  // A stone from a drawn outline: closed, evenly resampled and smoothed so a
+  // shaky finger still gives a pebble-smooth edge. A tap or scribble too
+  // small to read as a shape becomes a round pebble.
+  function makeStone(pts, index) {
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += dist(pts[i - 1], pts[i]);
+    let poly;
+    if (len < 0.03) {
+      const c = pts[0], r = 0.014, n = 24;
+      poly = [];
+      for (let k = 0; k < n; k++) {
+        const a = (k / n) * Math.PI * 2;
+        poly.push([c[0] + Math.cos(a) * r * (1 + 0.08 * Math.sin(a * 3 + index)), c[1] + Math.sin(a) * r]);
+      }
+    } else {
+      const closed = pts.concat([pts[0]]);
+      const n = Math.max(24, Math.min(160, Math.round((len + dist(pts[0], pts[pts.length - 1])) / 0.006)));
+      poly = resample(closed, (len + dist(pts[0], pts[pts.length - 1])) / n).slice(0, n);
+      for (let pass = 0; pass < 3; pass++) {
+        poly = poly.map((p, i) => {
+          const a = poly[(i - 1 + poly.length) % poly.length], b = poly[(i + 1) % poly.length];
+          return [(a[0] + 2 * p[0] + b[0]) / 4, (a[1] + 2 * p[1] + b[1]) / 4];
+        });
+      }
+    }
+    // Area and centroid (shoelace).
+    let A = 0, cx = 0, cy = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const [x0, y0] = poly[i], [x1, y1] = poly[(i + 1) % poly.length];
+      const f = x0 * y1 - x1 * y0;
+      A += f; cx += (x0 + x1) * f; cy += (y0 + y1) * f;
+    }
+    A /= 2;
+    const c = Math.abs(A) > 1e-9 ? [cx / (6 * A), cy / (6 * A)] : poly[0].slice();
+    const xs = poly.map((p) => p[0]), ys = poly.map((p) => p[1]);
+    // Each stone gets its own grey, seeded by its place in the drawing.
+    const rnd = mulberry(index * 7919 + 13);
+    return {
+      poly, c, area: Math.abs(A),
+      x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys),
+      hue: 20 + rnd() * 200, sat: 3 + rnd() * 9, light: 30 + rnd() * 18, seed: index,
+      sprite: null, shadow: null,
+    };
+  }
+
+  function mulberry(a) {
+    return () => {
+      a |= 0; a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Signed distance from a point to the nearest stone (negative inside),
+  // and which stone that is.
+  let nearest = -1;
+  function sd(stones, x, y) {
+    let best = Infinity;
+    nearest = -1;
+    for (let s = 0; s < stones.length; s++) {
+      const st = stones[s];
+      const bx = Math.max(st.x0 - x, 0, x - st.x1), by = Math.max(st.y0 - y, 0, y - st.y1);
+      if (Math.hypot(bx, by) > best) continue;
+      const P = st.poly;
+      let d2 = Infinity, inside = false;
+      for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
+        const [ax, ay] = P[j], [bx2, by2] = P[i];
+        const ex = bx2 - ax, ey = by2 - ay;
+        const t = Math.max(0, Math.min(1, ((x - ax) * ex + (y - ay) * ey) / (ex * ex + ey * ey || 1)));
+        const dx = x - ax - ex * t, dy = y - ay - ey * t;
+        d2 = Math.min(d2, dx * dx + dy * dy);
+        if ((ay > y) !== (by2 > y) && x < ax + ((y - ay) * ex) / (ey || 1e-12)) inside = !inside;
+      }
+      const d = inside ? -Math.sqrt(d2) : Math.sqrt(d2);
+      if (d < best) { best = d; nearest = s; }
+    }
+    return best;
+  }
+
+  // --- Route planning ------------------------------------------------------
+  // The Zamboni follows the drawn path until it would come too close to a
+  // stone. Then it drives along the stone's outline at a set clearance (a
+  // contour of the distance to the stones). The first time a path meets a
+  // stone it laps it, spiralling out one rake width per lap; then it carries
+  // on round until it reaches the drawn path again on the far side.
+  const STEP = 0.004;
+  function planRoute(pts, stones) {
+    const P = resample(pts, STEP);
+    if (!stones.length || P.length < 2) return P;
+    const w = rakeW() * 0.92;               // ring spacing, a hair under the swath
+    const c0 = rakeW() / 2 + val("gap") / 100;
+    const laps = val("laps");
+    const route = [];
+    const lapped = new Set();
+    const grad = (x, y) => {
+      const e = 0.0015;
+      let gx = sd(stones, x + e, y) - sd(stones, x - e, y);
+      let gy = sd(stones, x, y + e) - sd(stones, x, y - e);
+      const l = Math.hypot(gx, gy) || 1;
+      return [gx / l, gy / l];
+    };
+    let i = 0;
+    while (i < P.length) {
+      const p = P[i];
+      if (sd(stones, p[0], p[1]) >= c0) { route.push(p); i++; continue; }
+
+      // Too close: go round. Laps only on a first meeting with this stone.
+      const stone = nearest;
+      const myLaps = lapped.has(stone) ? 0 : laps;
+      lapped.add(stone);
+      const cf = c0 + w * myLaps;
+      let pos = route.length ? route[route.length - 1].slice() : p.slice();
+      {
+        const d = sd(stones, pos[0], pos[1]);
+        if (d < c0) { const g = grad(pos[0], pos[1]); pos = [pos[0] + g[0] * (c0 - d), pos[1] + g[1] * (c0 - d)]; }
+      }
+      // Turn the way the drawn path was heading.
+      const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)];
+      const h = [b[0] - a[0], b[1] - a[1]];
+      let g = grad(pos[0], pos[1]);
+      const dir = (-g[1] * h[0] + g[0] * h[1]) >= 0 ? 1 : -1;
+      // Where the drawn path leaves the stone's outermost ring.
+      let j = i + 1;
+      while (j < P.length && sd(stones, P[j][0], P[j][1]) < cf) j++;
+      const centre = stones[stone].c;
+      let prevAng = Math.atan2(pos[1] - centre[1], pos[0] - centre[0]);
+      let turned = 0;
+      const lapTurn = Math.PI * 2 * myLaps;
+      let next = P.length;
+      for (let n = 0; n < 6000; n++) {
+        g = grad(pos[0], pos[1]);
+        pos = [pos[0] - g[1] * dir * STEP, pos[1] + g[0] * dir * STEP];
+        // Spiral out while lapping, then hold the outermost ring.
+        const target = myLaps ? c0 + w * Math.min(myLaps, turned / (Math.PI * 2)) : c0;
+        const d = sd(stones, pos[0], pos[1]);
+        g = grad(pos[0], pos[1]);
+        pos = [pos[0] + g[0] * (target - d), pos[1] + g[1] * (target - d)];
+        route.push(pos);
+        const ang = Math.atan2(pos[1] - centre[1], pos[0] - centre[0]);
+        let da = ang - prevAng;
+        if (da > Math.PI) da -= Math.PI * 2; else if (da < -Math.PI) da += Math.PI * 2;
+        turned += Math.abs(da);
+        prevAng = ang;
+        if (turned < lapTurn) continue;
+        if (j >= P.length) {
+          // The path ended at the stone: finish the laps and stop there.
+          next = P.length;
+          break;
+        }
+        // Rejoin the drawn path once the ring reaches it.
+        let hit = -1;
+        for (let k = j; k < Math.min(P.length, j + 80); k++) {
+          if (dist(pos, P[k]) < Math.max(STEP * 2.5, w * 0.3)) { hit = k; break; }
+        }
+        if (hit >= 0) { next = hit; break; }
+        // Never circle forever: past one more lap, cut across to the path.
+        if (turned > lapTurn + Math.PI * 2.2) { next = j; break; }
+      }
+      i = next;
+    }
+    return smoothRoute(route);
+  }
+
+  // Round off the route's corners (where it leaves the drawn path for a
+  // stone, or comes back to it) so no turn is tighter than the rake can
+  // follow: at a sharp corner the outer tines would swing out across the
+  // sand beside the swath. The two ends stay put.
+  function smoothRoute(route) {
+    const n = route.length;
+    if (n < 5) return route;
+    const win = Math.max(2, Math.round((rakeW() * 0.35) / STEP));
+    let r = route;
+    for (let pass = 0; pass < 3; pass++) {
+      const next = new Array(n);
+      for (let i = 0; i < n; i++) {
+        const k = Math.min(win, i, n - 1 - i);
+        let x = 0, y = 0;
+        for (let j = i - k; j <= i + k; j++) { x += r[j][0]; y += r[j][1]; }
+        next[i] = [x / (2 * k + 1), y / (2 * k + 1)];
+      }
+      r = next;
+    }
+    return r;
+  }
+
+  // Per-route arrays: cumulative length, and a smoothed normal at each
+  // point to offset the tines by.
+  function prepRoute(route) {
+    const n = route.length;
+    const cum = new Float32Array(n);
+    for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + dist(route[i - 1], route[i]);
+    const nx = new Float32Array(n), ny = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const a = route[Math.max(0, i - 2)], b = route[Math.min(n - 1, i + 2)];
+      const tx = b[0] - a[0], ty = b[1] - a[1];
+      const l = Math.hypot(tx, ty) || 1;
+      nx[i] = -ty / l; ny[i] = tx / l;
+    }
+    return { pts: route, cum, nx, ny, len: n ? cum[n - 1] : 0 };
+  }
+
+  // Where along a route (and which way it faces) a given distance lands;
+  // past the end it carries straight on.
+  function poseAt(r, s) {
+    const n = r.pts.length;
+    if (n < 2) return { x: r.pts[0][0], y: r.pts[0][1], a: 0 };
+    if (s >= r.len) {
+      const a = r.pts[n - 2], b = r.pts[n - 1];
+      const ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+      return { x: b[0] + Math.cos(ang) * (s - r.len), y: b[1] + Math.sin(ang) * (s - r.len), a: ang };
+    }
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (r.cum[m] <= s) lo = m; else hi = m; }
+    const f = (s - r.cum[lo]) / ((r.cum[hi] - r.cum[lo]) || 1);
+    const p = r.pts[lo], q = r.pts[hi];
+    // Face along a stretch of route, so the body turns smoothly.
+    const a = r.pts[Math.max(0, lo - 4)], b = r.pts[Math.min(n - 1, hi + 4)];
+    return { x: p[0] + (q[0] - p[0]) * f, y: p[1] + (q[1] - p[1]) * f, a: Math.atan2(b[1] - a[1], b[0] - a[0]) };
+  }
+  const indexAt = (r, s) => {
+    let lo = 0, hi = r.pts.length - 1;
+    if (s >= r.len) return hi;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (r.cum[m] <= s) lo = m; else hi = m; }
+    return lo;
+  };
+
+  // --- Sand ----------------------------------------------------------------
+  // The raked sand is a picture that only ever gets drawn into: stone rings
+  // when they land, and grooves as the rake passes. The rake first smooths
+  // its swath back to plain sand, then combs its tines through it.
+  const sand = document.createElement("canvas");
+  const sandCtx = sand.getContext("2d");
+  let sandPattern = null, grooveDark = "#000", grooveLight = "#fff";
+  // Mix the sand colour towards another, f of the way.
+  function mixHex(hex, to, f) {
+    const a = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    return `rgb(${a.map((v, i) => Math.round(v + (to[i] - v) * f)).join(",")})`;
+  }
+  function makeSandPattern() {
+    const base = document.getElementById("col-sand").value;
+    grooveDark = mixHex(base, [70, 52, 28], 0.32);
+    grooveLight = mixHex(base, [255, 252, 240], 0.6);
+    const t = document.createElement("canvas");
+    t.width = t.height = 160;
+    const c = t.getContext("2d");
+    c.fillStyle = document.getElementById("col-sand").value;
+    c.fillRect(0, 0, 160, 160);
+    const rnd = mulberry(5);
+    for (let i = 0; i < 2600; i++) {
+      const v = rnd();
+      c.fillStyle = v < 0.5 ? `rgba(90,70,40,${0.05 + rnd() * 0.08})` : `rgba(255,255,250,${0.06 + rnd() * 0.1})`;
+      c.fillRect(rnd() * 160, rnd() * 160, 1 + rnd(), 1 + rnd());
+    }
+    sandPattern = sandCtx.createPattern(t, "repeat");
+  }
+  function clearSand() {
+    sandCtx.globalAlpha = 1;
+    sandCtx.fillStyle = sandPattern;
+    sandCtx.fillRect(0, 0, sand.width, sand.height);
+  }
+
+  // Rake the stretch of a route from point i0 to i1 into the sand.
+  function stampRange(r, i0, i1) {
+    if (i1 <= i0) return;
+    const W = sand.width;
+    const w = rakeW() * W, hw = w / 2;
+    const tines = Math.round(val("tines"));
+    const P = r.pts;
+    const c = sandCtx;
+    c.lineCap = "butt";
+    c.lineJoin = "round";
+    // Smooth the swath.
+    c.strokeStyle = sandPattern;
+    c.lineWidth = w;
+    c.beginPath();
+    c.moveTo(P[i0][0] * W, P[i0][1] * W);
+    for (let i = i0 + 1; i <= i1; i++) c.lineTo(P[i][0] * W, P[i][1] * W);
+    c.stroke();
+    // Comb it: each groove is a shadowed edge on the side towards the light
+    // (top left) and a lit edge on the far side.
+    const gap = w / tines;
+    const gw = Math.max(1, gap * 0.34);
+    const k = gw * 0.42;
+    // The grooves are solid colours, so each stretch can start a point back
+    // over the end of the last one (which its smoothing nicked) without
+    // doubling up into darker dots.
+    c.lineCap = "round";
+    const from = Math.max(0, i0 - 1);
+    for (const [col, lw, off] of [[grooveDark, gw, -k], [grooveLight, gw * 0.55, k]]) {
+      c.strokeStyle = col;
+      c.lineWidth = lw;
+      c.beginPath();
+      for (let t = 0; t < tines; t++) {
+        const o = -hw + gap * (t + 0.5);
+        for (let i = from; i <= i1; i++) {
+          const x = P[i][0] * W + r.nx[i] * o + off, y = P[i][1] * W + r.ny[i] * o + off;
+          if (i === from) c.moveTo(x, y); else c.lineTo(x, y);
+        }
+      }
+      c.stroke();
+    }
+  }
+
+  // The disturbed ring a landing stone pushes up in the sand.
+  function stampRing(st) {
+    const W = sand.width, c = sandCtx;
+    const r = Math.sqrt(st.area / Math.PI);
+    const ring = (grow, col, lw, blur) => {
+      c.save();
+      c.strokeStyle = col;
+      c.lineWidth = lw;
+      c.shadowColor = col;
+      c.shadowBlur = blur;
+      c.beginPath();
+      st.poly.forEach((p, i) => {
+        const dx = p[0] - st.c[0], dy = p[1] - st.c[1];
+        const f = 1 + grow / Math.max(r, 0.005);
+        const x = (st.c[0] + dx * f) * W, y = (st.c[1] + dy * f) * W;
+        if (i) c.lineTo(x, y); else c.moveTo(x, y);
+      });
+      c.closePath();
+      c.stroke();
+      c.restore();
+    };
+    const s = Math.min(1, 0.4 + r * 8);
+    ring(0.004 * s, "rgba(70,52,28,0.22)", W * 0.006 * s, W * 0.006);
+    ring(0.011 * s, "rgba(255,252,240,0.35)", W * 0.004 * s, W * 0.005);
+  }
+
+  // --- Stones on screen -----------------------------------------------------
+  // Each stone is painted once into its own little canvas (with a soft
+  // shadow of its silhouette alongside) and then just placed each frame.
+  function stoneSprites(st) {
+    const W = out.width;
+    if (st.sprite && st.spriteW === W) return;
+    const m = Math.ceil(W * 0.04);
+    const x0 = Math.floor(st.x0 * W) - m, y0 = Math.floor(st.y0 * W) - m;
+    const w = Math.ceil((st.x1 - st.x0) * W) + 2 * m, h = Math.ceil((st.y1 - st.y0) * W) + 2 * m;
+    const path = (c, dx = 0) => {
+      c.beginPath();
+      st.poly.forEach((p, i) => { const x = p[0] * W - x0 + dx, y = p[1] * W - y0; if (i) c.lineTo(x, y); else c.moveTo(x, y); });
+      c.closePath();
+    };
+    const sp = document.createElement("canvas");
+    sp.width = w; sp.height = h;
+    const c = sp.getContext("2d");
+    path(c);
+    c.fillStyle = `hsl(${st.hue}, ${st.sat}%, ${st.light}%)`;
+    c.fill();
+    c.save();
+    c.clip();
+    // Lit from the top left, rounding away into shade.
+    const cx = st.c[0] * W - x0, cy = st.c[1] * W - y0;
+    const R = Math.max(st.x1 - st.x0, st.y1 - st.y0) * W * 0.75;
+    const gr = c.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.05, cx, cy, R * 1.1);
+    gr.addColorStop(0, "rgba(255,255,255,0.38)");
+    gr.addColorStop(0.45, "rgba(255,255,255,0.04)");
+    gr.addColorStop(1, "rgba(0,0,0,0.45)");
+    c.fillStyle = gr;
+    c.fillRect(0, 0, w, h);
+    const rnd = mulberry(st.seed * 31 + 7);
+    const dots = Math.min(1500, Math.round(st.area * W * W * 0.04));
+    for (let i = 0; i < dots; i++) {
+      c.fillStyle = rnd() < 0.5 ? `rgba(0,0,0,${0.08 + rnd() * 0.15})` : `rgba(255,255,255,${0.06 + rnd() * 0.12})`;
+      const s = (0.4 + rnd() * 1.4) * (W / 600);
+      c.fillRect(rnd() * w, rnd() * h, s, s);
+    }
+    c.restore();
+    path(c);
+    c.strokeStyle = "rgba(20,18,15,0.35)";
+    c.lineWidth = Math.max(1, W / 700);
+    c.stroke();
+    // Its shadow: the silhouette drawn off to the side, its blur shadow
+    // offset back into place.
+    const sh = document.createElement("canvas");
+    sh.width = w; sh.height = h;
+    const s2 = sh.getContext("2d");
+    s2.shadowColor = "rgba(30,22,10,1)";
+    s2.shadowBlur = W * 0.012;
+    s2.shadowOffsetX = w * 2;
+    path(s2, -w * 2);
+    s2.fillStyle = "#000";
+    s2.fill();
+    Object.assign(st, { sprite: sp, shadow: sh, spriteW: W, sx0: x0, sy0: y0 });
+  }
+
+  // Draw a stone scaled about its centre: 1 on the ground, bigger while it
+  // is still up in the air and nearer the eye.
+  function drawStone(c, st, scale, alpha, h) {
+    stoneSprites(st);
+    const W = out.width;
+    const cx = st.c[0] * W, cy = st.c[1] * W;
+    const place = (img, dx, dy, s) =>
+      c.drawImage(img, cx + dx - (cx - st.sx0) * s, cy + dy - (cy - st.sy0) * s, img.width * s, img.height * s);
+    // The shadow stays on the ground, offset away from the light the higher
+    // the stone is, and sharpens and darkens as it comes down.
+    c.globalAlpha = 0.5 * alpha * (1 - 0.6 * h);
+    const off = W * (0.006 + 0.05 * h);
+    place(st.shadow, off, off, 1 + 0.25 * h);
+    c.globalAlpha = alpha;
+    place(st.sprite, -W * 0.02 * h, -W * 0.02 * h, scale);
+    c.globalAlpha = 1;
+  }
+
+  // --- The Zamboni -----------------------------------------------------------
+  // Seen from above, nose along +x: the rake trails behind, the monk sits in
+  // the middle in his robe, hands on the wheel.
+  function drawZamboni(c, x, y, ang, alpha) {
+    const W = out.width;
+    const w = rakeW() * W;
+    const L = w * 1.15, B = w * 0.78;
+    c.save();
+    c.globalAlpha = alpha;
+    c.translate(x, y);
+    c.rotate(ang);
+    const rr = (x0, y0, w0, h0, r) => {
+      c.beginPath();
+      c.moveTo(x0 + r, y0);
+      c.arcTo(x0 + w0, y0, x0 + w0, y0 + h0, r);
+      c.arcTo(x0 + w0, y0 + h0, x0, y0 + h0, r);
+      c.arcTo(x0, y0 + h0, x0, y0, r);
+      c.arcTo(x0, y0, x0 + w0, y0, r);
+      c.closePath();
+    };
+    // Shadow on the sand.
+    c.fillStyle = "rgba(40,28,10,0.22)";
+    rr(-L * 0.42 + w * 0.05, -B / 2 + w * 0.06, L, B, B * 0.22);
+    c.fill();
+    // The rake: a bar across the full swath with its tines.
+    const tines = Math.round(val("tines"));
+    c.fillStyle = "#6b4a2b";
+    c.fillRect(-L * 0.62, -w / 2, w * 0.07, w);
+    c.strokeStyle = "#6b4a2b";
+    c.lineWidth = Math.max(1, w * 0.025);
+    c.beginPath();
+    c.moveTo(-L * 0.55, -w * 0.15); c.lineTo(-L * 0.47, 0); c.lineTo(-L * 0.55, w * 0.15);
+    c.stroke();
+    c.fillStyle = "#4a3320";
+    for (let t = 0; t < tines; t++) {
+      const o = -w / 2 + (w / tines) * (t + 0.5);
+      c.fillRect(-L * 0.66, o - w * 0.015, w * 0.06, w * 0.03);
+    }
+    // Body: white with a blue band, dark windscreen at the front.
+    rr(-L * 0.47, -B / 2, L, B, B * 0.22);
+    c.fillStyle = "#f4f6f8";
+    c.fill();
+    c.strokeStyle = "rgba(0,0,0,0.25)";
+    c.lineWidth = Math.max(1, w * 0.012);
+    c.stroke();
+    c.fillStyle = "#2f6fb3";
+    c.fillRect(-L * 0.47, -B / 2 + B * 0.08, L, B * 0.12);
+    c.fillRect(-L * 0.47, B / 2 - B * 0.2, L, B * 0.12);
+    c.fillStyle = "#26323d";
+    rr(L * 0.3, -B * 0.32, L * 0.13, B * 0.64, B * 0.08);
+    c.fill();
+    // Steering wheel.
+    c.strokeStyle = "#222";
+    c.lineWidth = Math.max(1, w * 0.02);
+    c.beginPath();
+    c.arc(L * 0.16, 0, B * 0.11, 0, Math.PI * 2);
+    c.stroke();
+    // The monk: saffron robe over the shoulders, arms to the wheel, a
+    // shaved head.
+    c.fillStyle = "#c8742a";
+    c.beginPath();
+    c.ellipse(-L * 0.04, 0, L * 0.13, B * 0.3, 0, 0, Math.PI * 2);
+    c.fill();
+    c.strokeStyle = "#a85d1f";
+    c.lineWidth = Math.max(1, w * 0.045);
+    c.lineCap = "round";
+    c.beginPath();
+    c.moveTo(0, -B * 0.2); c.lineTo(L * 0.14, -B * 0.1);
+    c.moveTo(0, B * 0.2); c.lineTo(L * 0.14, B * 0.1);
+    c.stroke();
+    c.fillStyle = "#8a3d1c";
+    c.beginPath();
+    c.moveTo(-L * 0.15, -B * 0.22); c.lineTo(L * 0.05, B * 0.26); c.lineTo(-L * 0.02, B * 0.29); c.lineTo(-L * 0.17, -B * 0.16);
+    c.fill();
+    c.fillStyle = "#e0b48a";
+    c.beginPath();
+    c.arc(-L * 0.02, 0, B * 0.13, 0, Math.PI * 2);
+    c.fill();
+    c.fillStyle = "rgba(255,255,255,0.35)";
+    c.beginPath();
+    c.arc(-L * 0.05, -B * 0.04, B * 0.05, 0, Math.PI * 2);
+    c.fill();
+    c.restore();
+  }
+
+  // --- The garden in motion ---------------------------------------------------
+  let stones = [];          // every stone in the drawing, in order
+  let landed = new Set();   // stones lying in the garden right now
+  let drops = [];           // { st, landAt } stones on their way down
+  let rakes = [];           // queue of { r, startAt, s, done } routes to rake
+  let particles = [];
+  let shake = 0, shakeT = 0;
+  let replaying = false;
+  const DROP = 0.55;        // seconds a stone takes to fall
+  const beat = () => 60 / Math.max(1, val("bpm"));
+  const now = () => performance.now() / 1000;
+
+  function rebuildStones() {
+    stones = [];
+    items.forEach((it, i) => { if (it.k === "stone") stones.push(makeStone(it.p, i)); });
+  }
+
+  // The finished garden at once: every stone down, every path raked.
+  function rebake() {
+    replaying = false;
+    drops = []; rakes = []; particles = [];
+    rebuildStones();
+    makeSandPattern();
+    clearSand();
+    landed = new Set(stones);
+    stones.forEach(stampRing);
+    for (const it of items) {
+      if (it.k !== "rake") continue;
+      const r = prepRoute(planRoute(it.p, stones));
+      // In short stretches, as the rake would go: where the route crosses
+      // itself, the later pass must smooth away the earlier grooves.
+      for (let i = 0; i < r.pts.length - 1; i += 12) stampRange(r, i, Math.min(i + 12, r.pts.length - 1));
+    }
+    updateNote();
+  }
+
+  // Rebuild the garden in drawing order: stones fall one per beat, then
+  // the Zamboni rakes each path.
+  function replay() {
+    rebuildStones();
+    makeSandPattern();
+    clearSand();
+    landed = new Set();
+    particles = [];
+    const t = now(), b = beat();
+    drops = stones.map((st, k) => ({ st, landAt: t + (k + 1) * b }));
+    const first = t + (stones.length + 1) * b;
+    rakes = items.filter((it) => it.k === "rake").map((it, k) => ({
+      r: prepRoute(planRoute(it.p, stones)), startAt: k ? Infinity : first, s: 0, done: false, stamped: 0,
+    }));
+    replaying = true;
+  }
+
+  function land(st) {
+    landed.add(st);
+    stampRing(st);
+    const size = Math.sqrt(st.area);
+    shake = Math.min(1, 0.25 + size * 5);
+    shakeT = now();
+    sfx.thud(size);
+    // A puff of sand kicked out from under the edge.
+    const n = Math.round(10 + size * 120);
+    for (let i = 0; i < n; i++) {
+      const p = st.poly[(Math.random() * st.poly.length) | 0];
+      const dx = p[0] - st.c[0], dy = p[1] - st.c[1];
+      const l = Math.hypot(dx, dy) || 1;
+      const v = 0.04 + Math.random() * 0.08 * (0.5 + size * 4);
+      particles.push({ x: p[0], y: p[1], vx: (dx / l) * v, vy: (dy / l) * v, t: now(), life: 0.35 + Math.random() * 0.35 });
+    }
+  }
+
+  let last = now();
+  function frame() {
+    const t = now();
+    const dt = Math.min(0.1, t - last);
+    last = t;
+    const W = out.width;
+
+    // Stones that have reached the ground.
+    for (const d of drops) if (!d.done && t >= d.landAt) { d.done = true; land(d.st); }
+    drops = drops.filter((d) => !d.done);
+
+    // The Zamboni: one path at a time. It rakes from where its rake sits,
+    // the body rides ahead of that.
+    const active = rakes.find((r) => !r.done);
+    if (active && t >= active.startAt) {
+      const r = active.r;
+      if (active.s === 0 && !active.started) { active.started = true; active.t0 = t; sfx.rakeStart(); }
+      const v = (rakeW() * val("speed")) / beat();
+      active.s += v * dt;
+      const i1 = indexAt(r, Math.min(active.s, r.len));
+      if (i1 > active.stamped) { stampRange(r, active.stamped, i1); active.stamped = i1; }
+      sfx.rake(v);
+      const overrun = rakeW() * 2.2;
+      if (active.s >= r.len + overrun) {
+        active.done = true;
+        sfx.rakeStop();
+        const nextRake = rakes.find((q) => !q.done);
+        if (nextRake) nextRake.startAt = t + beat();
+      }
+    }
+    if (replaying && !drops.length && !rakes.some((r) => !r.done)) replaying = false;
+
+    // Picture: sand, stones on the ground, stones in the air, sand puffs,
+    // the Zamboni.
+    const c = outCtx;
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    const k = shake * Math.max(0, 1 - (t - shakeT) / 0.3);
+    if (k > 0) {
+      const a = W * 0.006 * k;
+      c.translate((Math.random() - 0.5) * a, (Math.random() - 0.5) * a);
+    }
+    c.drawImage(sand, 0, 0);
+    for (const st of stones) if (landed.has(st)) drawStone(c, st, 1, 1, 0);
+    for (const d of drops) {
+      const u = 1 - (d.landAt - t) / DROP;         // 0 at the top of the fall, 1 down
+      if (u <= 0) continue;
+      const h = 1 - u * u;                        // height: falls faster and faster
+      drawStone(c, d.st, 1 + 0.9 * h, Math.min(1, 0.15 + 1.6 * u), h);
+    }
+    particles = particles.filter((p) => t - p.t < p.life);
+    c.fillStyle = "rgba(205,190,160,1)";
+    for (const p of particles) {
+      const a = (t - p.t) / p.life;
+      const e = 1 - Math.pow(1 - Math.min(1, a), 2);
+      c.globalAlpha = 0.8 * (1 - a);
+      c.fillRect((p.x + p.vx * e * p.life) * W, (p.y + p.vy * e * p.life) * W, W * 0.003, W * 0.003);
+    }
+    c.globalAlpha = 1;
+    if (active && t >= active.startAt) {
+      const r = active.r;
+      const lead = rakeW() * 1.15 * 0.6;          // body centre ahead of the rake
+      const pose = poseAt(r, active.s + lead);
+      const fadeIn = Math.min(1, (t - (active.t0 || t)) / 0.35);
+      const fadeOut = Math.min(1, Math.max(0, (r.len + rakeW() * 2.2 - active.s) / (rakeW() * 1.2)));
+      drawZamboni(c, pose.x * W, pose.y * W, pose.a, Math.min(fadeIn, fadeOut));
+    }
+
+    if (replaying) updateNote();
+    requestAnimationFrame(frame);
+  }
+
+  // --- Pad -----------------------------------------------------------------
+  function drawPad() {
+    const S = pad.width, c = padCtx;
+    c.clearRect(0, 0, S, S);
+    const st = stones.length ? stones : [];
+    c.lineCap = "round";
+    c.lineJoin = "round";
+    // Rake paths as the swath they will cut.
+    for (const it of items.concat(current && tool === "rake" ? [{ k: "rake", p: current }] : [])) {
+      if (it.k !== "rake") continue;
+      c.strokeStyle = "rgba(120,90,50,0.22)";
+      c.lineWidth = rakeW() * S;
+      c.beginPath();
+      it.p.forEach((p, i) => (i ? c.lineTo(p[0] * S, p[1] * S) : c.moveTo(p[0] * S, p[1] * S)));
+      c.stroke();
+      c.fillStyle = "rgba(120,90,50,0.6)";
+      c.beginPath();
+      c.arc(it.p[0][0] * S, it.p[0][1] * S, S * 0.008, 0, Math.PI * 2);
+      c.fill();
+    }
+    for (const s of st) {
+      c.fillStyle = `hsl(${s.hue}, ${s.sat}%, ${s.light + 8}%)`;
+      c.beginPath();
+      s.poly.forEach((p, i) => (i ? c.lineTo(p[0] * S, p[1] * S) : c.moveTo(p[0] * S, p[1] * S)));
+      c.closePath();
+      c.fill();
+    }
+    if (current && tool === "stone") {
+      c.strokeStyle = "#2b2b2b";
+      c.lineWidth = Math.max(1, S * 0.004);
+      c.beginPath();
+      current.forEach((p, i) => (i ? c.lineTo(p[0] * S, p[1] * S) : c.moveTo(p[0] * S, p[1] * S)));
+      c.stroke();
+    }
+  }
+
+  function padPoint(e) {
+    const r = pad.getBoundingClientRect();
+    return [
+      Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)),
+      Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)),
+    ];
+  }
+  pad.addEventListener("pointerdown", (e) => {
+    if (e.button !== undefined && e.button > 0) return;
+    e.preventDefault();
+    pad.setPointerCapture(e.pointerId);
+    current = [padPoint(e)];
+    drawPad();
+  });
+  pad.addEventListener("pointermove", (e) => {
+    if (!current) return;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    for (const ev of (evs.length ? evs : [e])) {
+      const p = padPoint(ev);
+      const lastP = current[current.length - 1];
+      if (dist(p, lastP) > 0.003) current.push(p);
+    }
+    drawPad();
+  });
+  function endStroke() {
+    if (!current) return;
+    const p = current.map(([x, y]) => [+x.toFixed(4), +y.toFixed(4)]);
+    current = null;
+    if (tool === "rake" && p.length < 2) { drawPad(); return; }
+    items.push({ k: tool, p });
+    save();
+    // What was just drawn happens straight away: a stone drops now, a path
+    // gets raked now (after anything already under way).
+    if (tool === "stone") {
+      const st = makeStone(p, items.length - 1);
+      stones.push(st);
+      drops.push({ st, landAt: now() + DROP });
+    } else {
+      const queued = rakes.find((r) => !r.done);
+      rakes.push({ r: prepRoute(planRoute(p, stones)), startAt: queued ? Infinity : now(), s: 0, done: false, stamped: 0 });
+    }
+    drawPad();
+    updateNote();
+  }
+  pad.addEventListener("pointerup", endStroke);
+  pad.addEventListener("pointercancel", endStroke);
+
+  function setTool(t) {
+    tool = t;
+    document.getElementById("tool-stone").setAttribute("aria-pressed", String(t === "stone"));
+    document.getElementById("tool-rake").setAttribute("aria-pressed", String(t === "rake"));
+  }
+  document.getElementById("tool-stone").addEventListener("click", () => setTool("stone"));
+  document.getElementById("tool-rake").addEventListener("click", () => setTool("rake"));
+  document.getElementById("undo").addEventListener("click", () => { items.pop(); save(); rebake(); drawPad(); });
+  document.getElementById("clear").addEventListener("click", () => { items = []; save(); rebake(); drawPad(); });
+  document.getElementById("replay").addEventListener("click", replay);
+
+  function updateNote() {
+    const ns = items.filter((it) => it.k === "stone").length, nr = items.length - ns;
+    let s = `${ns} stone${ns === 1 ? "" : "s"} · ${nr} rake path${nr === 1 ? "" : "s"}`;
+    if (replaying) {
+      const down = landed.size, raked = rakes.filter((r) => r.done).length;
+      s += down < stones.length ? ` · stone ${down + 1} falling` : ` · raking ${Math.min(raked + 1, rakes.length)} of ${rakes.length}`;
+    } else if (!items.length) {
+      s = "Draw a stone, then a rake path.";
+    }
+    note.textContent = s;
+  }
+
+  // --- Wiring --------------------------------------------------------------
+  function pair(rangeId, numberId, onChange) {
+    const range = document.getElementById(rangeId);
+    const number = document.getElementById(numberId);
+    range.addEventListener("input", () => { number.value = range.value; onChange && onChange(); });
+    number.addEventListener("input", () => {
+      let v = +number.value;
+      if (Number.isNaN(v)) return;
+      v = Math.min(+number.max, Math.max(+number.min, v));
+      range.value = v;
+      onChange && onChange();
+    });
+  }
+  // The rake's shape changes the finished garden, so redraw it (at most
+  // once a frame while a slider is dragged).
+  let rebakeQueued = false;
+  const queueRebake = () => {
+    if (rebakeQueued) return;
+    rebakeQueued = true;
+    requestAnimationFrame(() => { rebakeQueued = false; rebake(); drawPad(); });
+  };
+  pair("speed", "speed-n");
+  pair("width", "width-n", queueRebake);
+  pair("tines", "tines-n", queueRebake);
+  pair("laps", "laps-n", queueRebake);
+  pair("gap", "gap-n", queueRebake);
+  document.getElementById("col-sand").addEventListener("input", queueRebake);
+
+  // Tap tempo: average the gaps between recent taps. A pause of more than
+  // two seconds starts a new count.
+  let taps = [];
+  document.getElementById("tap").addEventListener("click", () => {
+    const t = performance.now();
+    if (taps.length && t - taps[taps.length - 1] > 2000) taps = [];
+    taps.push(t);
+    if (taps.length > 8) taps.shift();
+    if (taps.length >= 2) {
+      const gap = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
+      document.getElementById("bpm").value = (60000 / gap).toFixed(1);
+    }
+  });
+
+  // Resizing redraws the finished garden at the new size. Only a real
+  // change of size counts, so a phone's toolbar sliding in and out leaves a
+  // replay running.
+  let sizedFor = 0;
+  function layout() {
+    sizeCanvas(out);
+    sizeCanvas(pad);
+    if (out.width !== sizedFor) {
+      sizedFor = out.width;
+      sand.width = out.width;
+      sand.height = out.height;
+      rebake();
+    }
+    drawPad();
+  }
+  window.addEventListener("resize", layout);
+  layout();
+  requestAnimationFrame(frame);
+</script>
+</body>
+</html>
