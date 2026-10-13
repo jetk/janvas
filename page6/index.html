@@ -181,6 +181,7 @@
         <button type="button" id="undo">Undo</button>
         <button type="button" id="clear">Clear</button>
         <button type="button" id="replay">Replay</button>
+        <button type="button" id="auto">Auto rake</button>
       </div>
       <div class="row beat">
         <span class="name">Tempo</span>
@@ -246,6 +247,14 @@
         rake widths every beat. Press Replay on a beat: the first stone lands
         one beat later. Tap the <strong>Tap</strong> button along with a song
         to measure its tempo.</p>
+        <p><strong>Auto rake</strong> drops the stones the same way, then
+        leaves the raking to the monk: in from the top-left corner and back
+        and forth across the whole garden in rows, bending round the stones,
+        and then round each stone in turn to rake its rings
+        (<strong>Laps</strong> of them) over the rows, so the rows stop
+        cleanly at the rings. Your drawn paths are left out (Replay brings
+        them back); a path drawn on top of the monk's garden bends round his
+        rings.</p>
         <p>Changing the rake, laps or gap redraws the finished garden. Your
         drawing is kept in this browser between visits.</p>
       </details>
@@ -368,7 +377,9 @@
   }
 
   // Signed distance from a point to the nearest stone (negative inside),
-  // and which stone that is.
+  // and which stone that is. Once a stone has its rings it counts as
+  // reaching out to the outermost one (its `extra`), so later passes bend
+  // round the rings instead of raking through them.
   let nearest = -1;
   function sd(stones, x, y) {
     let best = Infinity;
@@ -376,7 +387,8 @@
     for (let s = 0; s < stones.length; s++) {
       const st = stones[s];
       const bx = Math.max(st.x0 - x, 0, x - st.x1), by = Math.max(st.y0 - y, 0, y - st.y1);
-      if (Math.hypot(bx, by) > best) continue;
+      const extra = st.extra || 0;
+      if (Math.hypot(bx, by) - extra > best) continue;
       const P = st.poly;
       let d2 = Infinity, inside = false;
       for (let i = 0, j = P.length - 1; i < P.length; j = i++) {
@@ -387,7 +399,7 @@
         d2 = Math.min(d2, dx * dx + dy * dy);
         if ((ay > y) !== (by2 > y) && x < ax + ((y - ay) * ex) / (ey || 1e-12)) inside = !inside;
       }
-      const d = inside ? -Math.sqrt(d2) : Math.sqrt(d2);
+      const d = (inside ? -Math.sqrt(d2) : Math.sqrt(d2)) - extra;
       if (d < best) { best = d; nearest = s; }
     }
     return best;
@@ -398,14 +410,16 @@
   // stone. Then it drives along the stone's outline at a set clearance (a
   // contour of the distance to the stones). The first time a path meets a
   // stone it laps it, spiralling out one rake width per lap; then it carries
-  // on round until it reaches the drawn path again on the far side.
+  // on round until it reaches the drawn path again on the far side. (Rings
+  // the monk rakes himself, in auto mode, belong to the stone afterwards:
+  // see ringRoute.)
   const STEP = 0.004;
-  function planRoute(pts, stones) {
+  function planRoute(pts, stones, lapsOverride) {
     const P = resample(pts, STEP);
     if (!stones.length || P.length < 2) return P;
     const w = rakeW() * 0.92;               // ring spacing, a hair under the swath
     const c0 = rakeW() / 2 + val("gap") / 100;
-    const laps = val("laps");
+    const laps = lapsOverride ?? val("laps");
     const route = [];
     const lapped = new Set();
     const grad = (x, y) => {
@@ -430,51 +444,152 @@
         const d = sd(stones, pos[0], pos[1]);
         if (d < c0) { const g = grad(pos[0], pos[1]); pos = [pos[0] + g[0] * (c0 - d), pos[1] + g[1] * (c0 - d)]; }
       }
-      // Turn the way the drawn path was heading.
-      const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)];
-      const h = [b[0] - a[0], b[1] - a[1]];
-      let g = grad(pos[0], pos[1]);
-      const dir = (-g[1] * h[0] + g[0] * h[1]) >= 0 ? 1 : -1;
       // Where the drawn path leaves the stone's outermost ring.
       let j = i + 1;
       while (j < P.length && sd(stones, P[j][0], P[j][1]) < cf) j++;
       const centre = stones[stone].c;
-      let prevAng = Math.atan2(pos[1] - centre[1], pos[0] - centre[0]);
-      let turned = 0;
       const lapTurn = Math.PI * 2 * myLaps;
-      let next = P.length;
-      for (let n = 0; n < 6000; n++) {
-        g = grad(pos[0], pos[1]);
-        pos = [pos[0] - g[1] * dir * STEP, pos[1] + g[0] * dir * STEP];
-        // Spiral out while lapping, then hold the outermost ring.
-        const target = myLaps ? c0 + w * Math.min(myLaps, turned / (Math.PI * 2)) : c0;
-        const d = sd(stones, pos[0], pos[1]);
-        g = grad(pos[0], pos[1]);
-        pos = [pos[0] + g[0] * (target - d), pos[1] + g[1] * (target - d)];
-        route.push(pos);
-        const ang = Math.atan2(pos[1] - centre[1], pos[0] - centre[0]);
-        let da = ang - prevAng;
-        if (da > Math.PI) da -= Math.PI * 2; else if (da < -Math.PI) da += Math.PI * 2;
-        turned += Math.abs(da);
-        prevAng = ang;
-        if (turned < lapTurn) continue;
-        if (j >= P.length) {
+
+      // Drive round from pos, turning one way (dir = ±1): lapping first if
+      // due, then until the route meets the drawn path again. Returns the
+      // points driven, where on the path it rejoins, and whether it did.
+      const follow = (dir) => {
+        const pts = [];
+        let q = pos.slice();
+        let prevAng = Math.atan2(q[1] - centre[1], q[0] - centre[0]);
+        let turned = 0;
+        for (let n = 0; n < 6000; n++) {
+          let g = grad(q[0], q[1]);
+          q = [q[0] - g[1] * dir * STEP, q[1] + g[0] * dir * STEP];
+          // Spiral out while lapping, then hold the outermost ring.
+          const target = myLaps ? c0 + w * Math.min(myLaps, turned / (Math.PI * 2)) : c0;
+          const d = sd(stones, q[0], q[1]);
+          g = grad(q[0], q[1]);
+          q = [q[0] + g[0] * (target - d), q[1] + g[1] * (target - d)];
+          pts.push(q);
+          const ang = Math.atan2(q[1] - centre[1], q[0] - centre[0]);
+          let da = ang - prevAng;
+          if (da > Math.PI) da -= Math.PI * 2; else if (da < -Math.PI) da += Math.PI * 2;
+          turned += Math.abs(da);
+          prevAng = ang;
+          if (turned < lapTurn) continue;
           // The path ended at the stone: finish the laps and stop there.
-          next = P.length;
-          break;
+          if (j >= P.length) return { pts, next: P.length, ok: true };
+          // Rejoin the drawn path once the route reaches it, preferably just
+          // where it leaves the stone (see the choice of way round below).
+          for (let k = j; k < Math.min(P.length, j + 400); k++) {
+            if (dist(q, P[k]) < Math.max(STEP * 2.5, w * 0.3)) return { pts, next: k, ok: true };
+          }
+          if (turned > lapTurn + Math.PI * 2.2) break;
         }
-        // Rejoin the drawn path once the ring reaches it.
-        let hit = -1;
-        for (let k = j; k < Math.min(P.length, j + 80); k++) {
-          if (dist(pos, P[k]) < Math.max(STEP * 2.5, w * 0.3)) { hit = k; break; }
-        }
-        if (hit >= 0) { next = hit; break; }
-        // Never circle forever: past one more lap, cut across to the path.
-        if (turned > lapTurn + Math.PI * 2.2) { next = j; break; }
+        return { pts, next: j, ok: false };
+      };
+
+      // Turn the way the drawn path was heading. When only going round
+      // (no laps), try both ways and take whichever gets back to the path
+      // sooner: next to other ringed stones the heading can point the long
+      // way round a whole cluster.
+      const a = P[Math.max(0, i - 1)], b = P[Math.min(P.length - 1, i + 1)];
+      const h = [b[0] - a[0], b[1] - a[1]];
+      const g0 = grad(pos[0], pos[1]);
+      const ahead = (-g0[1] * h[0] + g0[0] * h[1]) >= 0 ? 1 : -1;
+      // Skipping drawn path costs double what driving round does, so a
+      // detour that brushes the next row of a back-and-forth doesn't hop
+      // onto it when the near way round rejoins its own row.
+      const cost = (r) => (r.ok ? 0 : 1e9) + r.pts.length + 2 * (r.next - j);
+      let best = follow(ahead);
+      if (!myLaps) {
+        const other = follow(-ahead);
+        if (cost(other) < cost(best)) best = other;
       }
+      for (const q of best.pts) route.push(q);
+      const next = best.next;
       i = next;
     }
     return smoothRoute(route);
+  }
+
+  // The monk's own pattern: in from the top-left corner, then back and
+  // forth across the whole garden in rows one rake width apart, turning
+  // just outside the edge so the lines run cleanly to both sides.
+  function autoRoute() {
+    const s = rakeW(), xa = -0.08, xb = 1.08;
+    const pts = [[-0.18, -0.12]];
+    let y = s / 2, ltr = true;
+    for (;;) {
+      const [x0, x1] = ltr ? [xa, xb] : [xb, xa];
+      pts.push([x0, y], [x1, y]);
+      if (y + s > 1 + s / 2) break;
+      const side = ltr ? 1 : -1;
+      for (let k = 1; k < 12; k++) {
+        const a = (Math.PI * k) / 12;
+        pts.push([x1 + side * Math.sin(a) * s / 2, y + s / 2 - Math.cos(a) * s / 2]);
+      }
+      y += s;
+      ltr = !ltr;
+    }
+    return pts;
+  }
+
+  // A stone's rings as one route of their own, following that stone alone
+  // (near another stone the rings simply overlap): a closed lap at the
+  // usual clearance, a spiral out a rake width per lap, then a closed lap
+  // at the outermost ring, so both edges are clean curves. Afterwards the
+  // stone counts as reaching out to that ring.
+  function ringRoute(st) {
+    const laps = val("laps");
+    if (!laps) return null;
+    st.extra = 0;
+    const stones = [st];
+    const w = rakeW() * 0.92;
+    const c0 = rakeW() / 2 + val("gap") / 100;
+    const grad = (x, y) => {
+      const e = 0.0015;
+      const gx = sd(stones, x + e, y) - sd(stones, x - e, y);
+      const gy = sd(stones, x, y + e) - sd(stones, x, y - e);
+      const l = Math.hypot(gx, gy) || 1;
+      return [gx / l, gy / l];
+    };
+    let q = [st.c[0], st.y0 - c0];
+    for (let n = 0; n < 6; n++) {
+      const d = sd(stones, q[0], q[1]), g = grad(q[0], q[1]);
+      q = [q[0] + g[0] * (c0 - d), q[1] + g[1] * (c0 - d)];
+    }
+    const pts = [q];
+    let prevAng = Math.atan2(q[1] - st.c[1], q[0] - st.c[0]);
+    let turned = 0;
+    const total = Math.PI * 2 * (laps + 1) + 0.2;
+    for (let n = 0; n < 8000 && turned < total; n++) {
+      let g = grad(q[0], q[1]);
+      q = [q[0] - g[1] * STEP, q[1] + g[0] * STEP];
+      const target = c0 + w * Math.min(laps - 1, Math.max(0, turned / (Math.PI * 2) - 1));
+      const d = sd(stones, q[0], q[1]);
+      g = grad(q[0], q[1]);
+      q = [q[0] + g[0] * (target - d), q[1] + g[1] * (target - d)];
+      pts.push(q);
+      const ang = Math.atan2(q[1] - st.c[1], q[0] - st.c[0]);
+      let da = ang - prevAng;
+      if (da > Math.PI) da -= Math.PI * 2; else if (da < -Math.PI) da += Math.PI * 2;
+      turned += Math.abs(da);
+      prevAng = ang;
+    }
+    st.extra = w * laps;
+    return pts;
+  }
+
+  // Which raking the garden gets: the drawn paths, or the monk's own
+  // ("auto"): rows across the whole garden bending round the bare stones,
+  // then each stone's rings raked over them, so the rows stop cleanly at
+  // the rings like a gardener's would. Each replay button sets it.
+  const MODE = "janvas.page6.mode";
+  let mode = "paths";
+  try { mode = localStorage.getItem(MODE) === "auto" ? "auto" : "paths"; } catch (e) {}
+  const setMode = (m) => { mode = m; try { localStorage.setItem(MODE, m); } catch (e) {} };
+  function gardenRoutes() {
+    if (mode !== "auto") return items.filter((it) => it.k === "rake").map((it) => planRoute(it.p, stones));
+    const routes = [planRoute(autoRoute(), stones, 0)];
+    for (const st of stones) { const r = ringRoute(st); if (r) routes.push(r); }
+    return routes;
   }
 
   // Round off the route's corners (where it leaves the drawn path for a
@@ -829,9 +944,8 @@
     clearSand();
     landed = new Set(stones);
     stones.forEach(stampRing);
-    for (const it of items) {
-      if (it.k !== "rake") continue;
-      const r = prepRoute(planRoute(it.p, stones));
+    for (const route of gardenRoutes()) {
+      const r = prepRoute(route);
       // In short stretches, as the rake would go: where the route crosses
       // itself, the later pass must smooth away the earlier grooves.
       for (let i = 0; i < r.pts.length - 1; i += 12) stampRange(r, i, Math.min(i + 12, r.pts.length - 1));
@@ -840,8 +954,9 @@
   }
 
   // Rebuild the garden in drawing order: stones fall one per beat, then
-  // the Zamboni rakes each path.
-  function replay() {
+  // the Zamboni rakes each path, or (auto) the whole garden in rows.
+  function replay(m) {
+    setMode(m);
     rebuildStones();
     makeSandPattern();
     clearSand();
@@ -850,8 +965,8 @@
     const t = now(), b = beat();
     drops = stones.map((st, k) => ({ st, landAt: t + (k + 1) * b }));
     const first = t + (stones.length + 1) * b;
-    rakes = items.filter((it) => it.k === "rake").map((it, k) => ({
-      r: prepRoute(planRoute(it.p, stones)), startAt: k ? Infinity : first, s: 0, done: false, stamped: 0,
+    rakes = gardenRoutes().map((route, k) => ({
+      r: prepRoute(route), startAt: k ? Infinity : first, s: 0, done: false, stamped: 0,
     }));
     replaying = true;
   }
@@ -1037,14 +1152,18 @@
   document.getElementById("tool-rake").addEventListener("click", () => setTool("rake"));
   document.getElementById("undo").addEventListener("click", () => { items.pop(); save(); rebake(); drawPad(); });
   document.getElementById("clear").addEventListener("click", () => { items = []; save(); rebake(); drawPad(); });
-  document.getElementById("replay").addEventListener("click", replay);
+  document.getElementById("replay").addEventListener("click", () => replay("paths"));
+  document.getElementById("auto").addEventListener("click", () => replay("auto"));
 
   function updateNote() {
     const ns = items.filter((it) => it.k === "stone").length, nr = items.length - ns;
     let s = `${ns} stone${ns === 1 ? "" : "s"} · ${nr} rake path${nr === 1 ? "" : "s"}`;
     if (replaying) {
       const down = landed.size, raked = rakes.filter((r) => r.done).length;
-      s += down < stones.length ? ` · stone ${down + 1} falling` : ` · raking ${Math.min(raked + 1, rakes.length)} of ${rakes.length}`;
+      s += down < stones.length ? ` · stone ${down + 1} falling`
+        : mode === "auto" ? " · the monk is raking" : ` · raking ${Math.min(raked + 1, rakes.length)} of ${rakes.length}`;
+    } else if (mode === "auto") {
+      s += " · raked by the monk";
     } else if (!items.length) {
       s = "Draw a stone, then a rake path.";
     }
