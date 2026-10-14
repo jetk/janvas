@@ -228,6 +228,12 @@
         <span class="name">Sand</span>
         <input type="color" id="col-sand" value="#e6dcc6">
       </div>
+      <div class="row">
+        <span class="name">Sound</span>
+        <input type="range" id="vol" min="0" max="100" step="1" value="70">
+        <input type="number" id="vol-n" min="0" max="100" step="1" value="70">
+        <span class="range-hint">volume</span>
+      </div>
 
       <details>
         <summary>How it works</summary>
@@ -255,6 +261,10 @@
         cleanly at the rings. Your drawn paths are left out (Replay brings
         them back); a path drawn on top of the monk's garden bends round his
         rings.</p>
+        <p>With <strong>Sound</strong> up, falling stones rush and land with
+        a thud (deeper for bigger stones), the Zamboni hums and its rake
+        shushes through the sand, and a singing bowl rings when a replay has
+        finished the garden.</p>
         <p>Changing the rake, laps or gap redraws the finished garden. Your
         drawing is kept in this browser between visits.</p>
       </details>
@@ -264,11 +274,160 @@
 <script>
   // --- Sound -------------------------------------------------------------
   // The places sound will hook in. Nothing plays yet.
+  // Everything is synthesised. A stone's fall and landing are scheduled on
+  // the audio clock as soon as it is let go, so on Replay the thuds land on
+  // the beat even when a frame is late. Audio can only start from a tap, so
+  // the pad and the replay buttons wake it.
+  let ac = null, master = null, bus = null, noiseBuf = null;
+  function audio() {
+    if (!ac) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      ac = new AC();
+      const comp = ac.createDynamicsCompressor();
+      comp.threshold.value = -14;
+      comp.ratio.value = 4;
+      master = ac.createGain();
+      master.gain.value = val("vol") / 100;
+      master.connect(comp);
+      comp.connect(ac.destination);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate * 2, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      bus = newBus();
+    }
+    if (ac.state === "suspended") ac.resume();
+    return ac;
+  }
+  // Scheduled sounds go through a bus that a new replay can cut in one go.
+  function newBus() {
+    const g = ac.createGain();
+    g.connect(master);
+    return g;
+  }
+  // The audio clock time for a moment on the page clock (seconds).
+  const acAt = (t) => ac.currentTime + Math.max(0, t - performance.now() / 1000);
+
+  function tone(dest, t, f0, f1, dur, gain, type = "sine") {
+    const o = ac.createOscillator();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(dest);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  }
+  function noise(dest, t, dur, gain, { type = "lowpass", f0 = 2000, f1 = f0, q = 0.7, attack = 0.003 } = {}) {
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuf;
+    const f = ac.createBiquadFilter();
+    f.type = type;
+    f.Q.value = q;
+    f.frequency.setValueAtTime(f0, t);
+    if (f1 !== f0) f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ac.createGain();
+    const a = Math.min(attack, dur * 0.95);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f).connect(g).connect(dest);
+    src.start(t, Math.random() * Math.max(0, 1.9 - dur));
+    src.stop(t + dur + 0.05);
+  }
+  // A looping noise through a filter, for the held sounds of raking.
+  function held(type, freq, q) {
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuf;
+    src.loop = true;
+    const f = ac.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = freq;
+    f.Q.value = q;
+    const g = ac.createGain();
+    g.gain.value = 0;
+    src.connect(f).connect(g);
+    src.start(ac.currentTime, Math.random() * 1.9);
+    return { src, f, g };
+  }
+
+  let rakeVoice = null;
   const sfx = {
-    thud(size) {},          // a stone lands; size is about 0.01 (pebble) to 0.3
-    rakeStart() {},         // the Zamboni starts raking a path
-    rake(speed) {},         // every frame while raking; speed in sides per second
-    rakeStop() {},          // it has finished the path
+    // A stone let go now that lands at `landAt` (page clock); size is about
+    // 0.01 (pebble) to 0.3. The air rushes as it falls, then a deep whump
+    // (lower and longer the bigger it is), a sandy crunch and a scatter of
+    // grains.
+    drop(size, landAt) {
+      if (!audio()) return;
+      const t = acAt(landAt), k = Math.min(1, 0.25 + size * 4);
+      noise(bus, Math.max(ac.currentTime, t - DROP), Math.min(DROP, t - ac.currentTime) + 0.03, 0.12 * k,
+        { type: "bandpass", f0: 350, f1: 1300, q: 0.9, attack: DROP * 0.9 });
+      const f0 = 120 - 200 * Math.min(0.3, size);
+      tone(bus, t, f0 * 1.7, f0, 0.22 + size * 1.2, 0.9 * k);
+      tone(bus, t, f0 * 2.6, f0 * 1.4, 0.08 + size * 0.3, 0.25 * k, "triangle");
+      noise(bus, t, 0.16 + size * 0.5, 0.55 * k, { f0: 1100, f1: 160, attack: 0.004 });
+      noise(bus, t + 0.025, 0.12 + size * 0.2, 0.1 * k, { type: "highpass", f0: 3200, attack: 0.01 });
+    },
+    // The Zamboni starts raking: a low electric hum and the shush of the
+    // rake through sand, with grit that flickers frame to frame.
+    rakeStart() {
+      if (!audio() || rakeVoice) return;
+      const out = ac.createGain();
+      out.gain.value = 0;
+      out.connect(bus);
+      const shh = held("bandpass", 1600, 0.8);
+      const grit = held("highpass", 4200, 0.7);
+      shh.g.connect(out); grit.g.connect(out);
+      const motor = ac.createOscillator();
+      motor.type = "sawtooth";
+      motor.frequency.value = 55;
+      const mf = ac.createBiquadFilter();
+      mf.type = "lowpass";
+      mf.frequency.value = 240;
+      const mg = ac.createGain();
+      mg.gain.value = 0.05;
+      motor.connect(mf).connect(mg).connect(out);
+      motor.start();
+      out.gain.setTargetAtTime(1, ac.currentTime, 0.12);
+      rakeVoice = { out, shh, grit, motor, mg };
+    },
+    // Every frame while raking; speed in garden sides per second.
+    rake(speed) {
+      if (!rakeVoice) return;
+      const v = rakeVoice, t = ac.currentTime;
+      const u = Math.min(1, speed / 0.25);
+      v.shh.g.gain.setTargetAtTime(0.06 + 0.12 * u, t, 0.05);
+      v.shh.f.frequency.setTargetAtTime(1100 + 1800 * u, t, 0.1);
+      v.grit.g.gain.setTargetAtTime((0.01 + 0.05 * u) * (0.3 + Math.random()), t, 0.015);
+      v.motor.frequency.setTargetAtTime(48 + 40 * u, t, 0.2);
+    },
+    // Done with this path: fade out.
+    rakeStop() {
+      if (!rakeVoice) return;
+      const v = rakeVoice, t = ac.currentTime;
+      rakeVoice = null;
+      v.out.gain.setTargetAtTime(0, t, 0.15);
+      for (const n of [v.shh.src, v.grit.src, v.motor]) n.stop(t + 1);
+    },
+    // The whole garden is done: a singing bowl, its partials out of tune
+    // with each other the way a bowl's are.
+    bell() {
+      if (!audio()) return;
+      const t = ac.currentTime + 0.05;
+      [[1, 0.22, 6], [2.71, 0.08, 4], [5.15, 0.04, 2.5], [8.4, 0.015, 1.5]].forEach(([r, g, d]) =>
+        tone(bus, t, 220 * r, 220 * r * 0.998, d, g));
+    },
+    // Silence everything scheduled or running (a new replay, undo, clear).
+    cut() {
+      if (!ac) return;
+      if (rakeVoice) { const v = rakeVoice; rakeVoice = null; v.out.gain.value = 0; for (const n of [v.shh.src, v.grit.src, v.motor]) n.stop(); }
+      bus.gain.setTargetAtTime(0, ac.currentTime, 0.02);
+      setTimeout(((old) => () => old.disconnect())(bus), 200);
+      bus = newBus();
+    },
   };
 
   // --- Drawing -------------------------------------------------------------
@@ -938,6 +1097,7 @@
   // The finished garden at once: every stone down, every path raked.
   function rebake() {
     replaying = false;
+    sfx.cut();
     drops = []; rakes = []; particles = [];
     rebuildStones();
     makeSandPattern();
@@ -957,6 +1117,8 @@
   // the Zamboni rakes each path, or (auto) the whole garden in rows.
   function replay(m) {
     setMode(m);
+    audio();
+    sfx.cut();
     rebuildStones();
     makeSandPattern();
     clearSand();
@@ -964,6 +1126,7 @@
     particles = [];
     const t = now(), b = beat();
     drops = stones.map((st, k) => ({ st, landAt: t + (k + 1) * b }));
+    for (const d of drops) sfx.drop(Math.sqrt(d.st.area), d.landAt);
     const first = t + (stones.length + 1) * b;
     rakes = gardenRoutes().map((route, k) => ({
       r: prepRoute(route), startAt: k ? Infinity : first, s: 0, done: false, stamped: 0,
@@ -977,7 +1140,6 @@
     const size = Math.sqrt(st.area);
     shake = Math.min(1, 0.25 + size * 5);
     shakeT = now();
-    sfx.thud(size);
     // A puff of sand kicked out from under the edge.
     const n = Math.round(10 + size * 120);
     for (let i = 0; i < n; i++) {
@@ -1019,7 +1181,7 @@
         if (nextRake) nextRake.startAt = t + beat();
       }
     }
-    if (replaying && !drops.length && !rakes.some((r) => !r.done)) replaying = false;
+    if (replaying && !drops.length && !rakes.some((r) => !r.done)) { replaying = false; sfx.bell(); updateNote(); }
 
     // Picture: sand, stones on the ground, stones in the air, sand puffs,
     // the Zamboni.
@@ -1104,6 +1266,7 @@
     ];
   }
   pad.addEventListener("pointerdown", (e) => {
+    audio();
     if (e.button !== undefined && e.button > 0) return;
     e.preventDefault();
     pad.setPointerCapture(e.pointerId);
@@ -1133,6 +1296,7 @@
       const st = makeStone(p, items.length - 1);
       stones.push(st);
       drops.push({ st, landAt: now() + DROP });
+      sfx.drop(Math.sqrt(st.area), now() + DROP);
     } else {
       const queued = rakes.find((r) => !r.done);
       rakes.push({ r: prepRoute(planRoute(p, stones)), startAt: queued ? Infinity : now(), s: 0, done: false, stamped: 0 });
@@ -1197,6 +1361,7 @@
   pair("laps", "laps-n", queueRebake);
   pair("gap", "gap-n", queueRebake);
   document.getElementById("col-sand").addEventListener("input", queueRebake);
+  pair("vol", "vol-n", () => { if (master) master.gain.setTargetAtTime(val("vol") / 100, ac.currentTime, 0.03); });
 
   // Tap tempo: average the gaps between recent taps. A pause of more than
   // two seconds starts a new count.
